@@ -26,12 +26,44 @@
   --color-info: #0078d4;
   --color-info-bg: #deecf9;
   --color-success: #107c10;
+  --color-toolbar-bg: #faf9f8;
+  --color-welcome-gradient: linear-gradient(135deg, #f0f6ff 0%, #f5f5f5 100%);
+  --color-xml-bg: #1e1e1e;
+  --color-xml-text: #d4d4d4;
+  --color-code-bg: #1e1e1e;
+  --color-code-text: #4ec9b0;
   --radius: 8px;
   --radius-sm: 4px;
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.12);
   --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.16);
   --font: 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+
+[data-theme='dark'] {
+  --color-primary: #4da6ff;
+  --color-primary-hover: #2b8ee6;
+  --color-primary-light: #1a3a5c;
+  --color-bg: #1e1e1e;
+  --color-surface: #252526;
+  --color-border: #3c3c3c;
+  --color-text: #cccccc;
+  --color-text-secondary: #9d9d9d;
+  --color-text-tertiary: #6d6d6d;
+  --color-error: #f48771;
+  --color-error-bg: #3a1d1d;
+  --color-info: #4da6ff;
+  --color-info-bg: #1a3a5c;
+  --color-success: #4ec9b0;
+  --color-toolbar-bg: #2d2d2d;
+  --color-welcome-gradient: linear-gradient(135deg, #1a2a3a 0%, #252526 100%);
+  --color-xml-bg: #1e1e1e;
+  --color-xml-text: #d4d4d4;
+  --color-code-bg: #1a1a1a;
+  --color-code-text: #4ec9b0;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.32);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.48);
 }
 
 body {
@@ -150,7 +182,7 @@ body {
 .welcome-banner {
   padding: 20px 24px;
   border-bottom: 1px solid var(--color-border);
-  background: linear-gradient(135deg, #f0f6ff 0%, #f5f5f5 100%);
+  background: var(--color-welcome-gradient);
 }
 
 .welcome-content {
@@ -192,8 +224,8 @@ body {
 .auth-command-inline {
   display: inline-block;
   padding: 4px 12px;
-  background: #1e1e1e;
-  color: #4ec9b0;
+  background: var(--color-code-bg);
+  color: var(--color-code-text);
   border-radius: var(--radius-sm);
   font-size: 13px;
   font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
@@ -218,8 +250,8 @@ body {
 .auth-required-command {
   display: inline-block;
   padding: 8px 20px;
-  background: #1e1e1e;
-  color: #4ec9b0;
+  background: var(--color-code-bg);
+  color: var(--color-code-text);
   border-radius: var(--radius);
   font-size: 15px;
   font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
@@ -256,7 +288,7 @@ body {
 .rbac-hint {
   font-size: 11px;
   color: var(--color-text-tertiary);
-  background: #faf9f8;
+  background: var(--color-toolbar-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
@@ -556,7 +588,7 @@ body {
   justify-content: space-between;
   padding: 8px 16px;
   border-bottom: 1px solid var(--color-border);
-  background: #faf9f8;
+  background: var(--color-toolbar-bg);
   flex-shrink: 0;
 }
 
@@ -613,7 +645,7 @@ body {
   flex: 1;
   overflow: auto;
   padding: 16px;
-  background: #1e1e1e;
+  background: var(--color-xml-bg);
 }
 
 .xml-view pre {
@@ -621,7 +653,7 @@ body {
 }
 
 .xml-view code {
-  color: #d4d4d4;
+  color: var(--color-xml-text);
   font-size: 12px;
   font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
   white-space: pre;
@@ -631,7 +663,7 @@ body {
 .resource-list {
   padding: 10px 16px;
   border-top: 1px solid var(--color-border);
-  background: #faf9f8;
+  background: var(--color-toolbar-bg);
   max-height: 160px;
   overflow-y: auto;
   flex-shrink: 0;
@@ -722,4 +754,56 @@ body {
 .sidebar::-webkit-scrollbar-thumb:hover,
 .resource-list::-webkit-scrollbar-thumb:hover {
   background: #a19f9d;
+}
+
+/* --- Theme Toggle --- */
+.theme-toggle {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-sm);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.theme-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* --- Dark mode header adjustment --- */
+[data-theme='dark'] .header {
+  background: linear-gradient(135deg, #1a3a5c 0%, #0d2240 100%);
+}
+
+[data-theme='dark'] .chip {
+  background: #1a3a5c;
+  color: #4da6ff;
+}
+
+[data-theme='dark'] .chip:hover {
+  background: #224466;
+}
+
+[data-theme='dark'] .alert-error {
+  border-color: #5c2d2d;
+}
+
+[data-theme='dark'] .alert-info {
+  border-color: #2a4a6a;
+}
+
+[data-theme='dark'] .scrollbar::-webkit-scrollbar-thumb {
+  background: #555;
 }

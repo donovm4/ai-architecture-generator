@@ -43,6 +43,21 @@ export default function App() {
   } | null>(null);
   const [result, setResult] = useState<GenerateResponse | null>(null);
   const [error, setError] = useState('');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved === 'dark' || saved === 'light') return saved;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
+
+  // Apply theme to document
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  }, []);
 
   // Check server-side auth status on mount
   useEffect(() => {
@@ -62,7 +77,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header auth={auth} />
+      <Header auth={auth} theme={theme} onToggleTheme={toggleTheme} />
 
       <main className="main">
         <div className="sidebar">
