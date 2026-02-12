@@ -87,7 +87,7 @@ Architecture patterns to recognize:
 - "HA" or "high availability" or "dual region" → Create resources in 2 regions with failover
 - "ExpressRoute" → Add ER circuit and on-premises connection
 - "private endpoint" or "private connectivity" → Use private endpoints for PaaS services
-- "zone redundant" or "availability zones" → Note in properties
+- "zone redundant" or "availability zones" → Distribute VMs/VMSS across availability zones using properties.availabilityZone
 - "separate subscription" or "dedicated subscription" → Use the subscriptions array and set the "subscription" field on resources to group them
 
 Rules:
@@ -100,7 +100,7 @@ Rules:
 7. When user mentions "separate subscription", add a subscriptions array and tag resources with the subscription name
 8. If no subscriptions are specified, omit the subscriptions array entirely
 9. Multi-region hub-spoke: ALWAYS add a global VNet peering connection between hub VNets across regions
-10. When user says VMs in "separate availability zones", assign zone 1 to first VM and zone 2 to second VM (use properties.availabilityZone as a single number, not a list)
+10. When user mentions "availability zones" or multiple VMs, distribute them across zones by setting properties.availabilityZone to 1, 2, or 3 on each VM/VMSS. Round-robin assign: first VM gets zone 1, second gets zone 2, third gets zone 3, fourth gets zone 1, etc.
 
 Only output the JSON, no explanation.`;
 
@@ -413,6 +413,42 @@ function buildResourceGroups(response: ParsedResponse, region?: string): Resourc
       name: `rg-main${suffix}`,
       resources: [...vnets, ...rgLevelResources],
     });
+  }
+
+  // Post-process: group resources with availabilityZone into AZ containers within subnets
+  for (const group of groups) {
+    for (const res of group.resources) {
+      const vnet = res as VNet;
+      if (vnet.subnets) {
+        for (const subnet of vnet.subnets) {
+          if (!subnet.resources) continue;
+          const zonedResources = subnet.resources.filter(r => 
+            r.properties?.availabilityZone !== undefined
+          );
+          if (zonedResources.length === 0) continue;
+
+          // Group by zone
+          const zoneMap = new Map<number, Resource[]>();
+          for (const r of zonedResources) {
+            const zone = Number(r.properties!.availabilityZone);
+            if (!zoneMap.has(zone)) zoneMap.set(zone, []);
+            zoneMap.get(zone)!.push(r);
+          }
+
+          // Only create AZ containers if there are multiple zones
+          if (zoneMap.size > 1) {
+            // Remove zoned resources from the flat list
+            subnet.resources = subnet.resources.filter(r => 
+              r.properties?.availabilityZone === undefined
+            );
+            // Create AZ groups
+            subnet.availabilityZones = Array.from(zoneMap.entries())
+              .sort(([a], [b]) => a - b)
+              .map(([zone, resources]) => ({ zone, resources }));
+          }
+        }
+      }
+    }
   }
 
   return groups;

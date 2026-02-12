@@ -264,8 +264,8 @@ export const RESOURCES: Record<string, ResourceDefinition> = {
     width: 40, height: 40,
     isContainer: true,
     containerStyle: CONTAINER_STYLES.availabilityZone,
-    containedBy: ['region', 'vnet'],
-    canContain: ['vm', 'vmss'],
+    containedBy: ['region', 'vnet', 'subnet'],
+    canContain: ['vm', 'vmss', 'appGateway', 'loadBalancer', 'firewall'],
     category: 'hierarchy',
   },
   'subscription': {

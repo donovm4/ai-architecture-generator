@@ -351,10 +351,58 @@ export class DrawIOBuilder {
 
     this.cellMap.set(subnet.name, { id, parentId: vnetId, position: pos });
 
-    // Build resources in subnet
+    // Build AZ containers if present
+    if (subnet.availabilityZones && subnet.availabilityZones.length > 0) {
+      let azX = 15;
+      const azY = 45;
+      const azSpacing = 15;
+
+      for (const azGroup of subnet.availabilityZones) {
+        const azId = this.nextId();
+        const azResourceCount = azGroup.resources.length;
+        const azCols = Math.min(azResourceCount, 2);
+        const azRows = Math.ceil(azResourceCount / 2);
+        const azWidth = Math.max(150, azCols * 130 + 30);
+        const azHeight = Math.max(110, azRows * 110 + 50);
+
+        this.addContainer(parent, {
+          id: azId,
+          parentId: id,
+          value: `Availability Zone ${azGroup.zone}`,
+          style: CONTAINER_STYLES.availabilityZone,
+          x: azX,
+          y: azY,
+          width: azWidth,
+          height: azHeight,
+        });
+
+        this.cellMap.set(`AZ-${azGroup.zone}-${subnet.name}`, { id: azId, parentId: id, position: { x: azX, y: azY } });
+
+        // Build resources inside AZ container
+        let resX = 15;
+        let resY = 40;
+        let col = 0;
+        const maxCols = Math.max(2, Math.floor((azWidth - 30) / 130));
+
+        for (const resource of azGroup.resources) {
+          this.buildResource(parent, resource, azId, { x: resX + col * 130, y: resY });
+          col++;
+          if (col >= maxCols) {
+            col = 0;
+            resY += 110;
+          }
+        }
+
+        azX += azWidth + azSpacing;
+      }
+    }
+
+    // Build non-AZ resources in subnet
     if (subnet.resources) {
       let resX = 15;
-      let resY = 45;
+      let resY = subnet.availabilityZones && subnet.availabilityZones.length > 0
+        ? this.calculateAZSectionHeight(subnet) + 55
+        : 45;
       const colWidth = 130;
       let col = 0;
       const maxCols = Math.max(2, Math.floor((width - 30) / colWidth));
@@ -368,6 +416,17 @@ export class DrawIOBuilder {
         }
       }
     }
+  }
+
+  private calculateAZSectionHeight(subnet: Subnet): number {
+    if (!subnet.availabilityZones || subnet.availabilityZones.length === 0) return 0;
+    let maxHeight = 0;
+    for (const azGroup of subnet.availabilityZones) {
+      const rows = Math.ceil(azGroup.resources.length / 2);
+      const azHeight = Math.max(110, rows * 110 + 50);
+      maxHeight = Math.max(maxHeight, azHeight);
+    }
+    return maxHeight;
   }
 
   // ==================== ON-PREMISES BUILDING ====================
@@ -763,13 +822,40 @@ export class DrawIOBuilder {
 
   private calculateSubnetWidth(subnet: Subnet): number {
     const resourceCount = subnet.resources?.length || 0;
-    const cols = Math.min(resourceCount, 2);
-    return Math.max(150, cols * 130 + 30);
+    const basicCols = Math.min(resourceCount, 2);
+    let basicWidth = Math.max(150, basicCols * 130 + 30);
+
+    // If there are AZ containers, calculate their total width
+    if (subnet.availabilityZones && subnet.availabilityZones.length > 0) {
+      let azTotalWidth = 15; // initial padding
+      for (const azGroup of subnet.availabilityZones) {
+        const azCols = Math.min(azGroup.resources.length, 2);
+        azTotalWidth += Math.max(150, azCols * 130 + 30) + 15;
+      }
+      basicWidth = Math.max(basicWidth, azTotalWidth + 15);
+    }
+
+    return basicWidth;
   }
 
   private calculateSubnetHeight(subnet: Subnet): number {
     const resourceCount = subnet.resources?.length || 0;
     const rows = Math.ceil(Math.max(1, resourceCount) / 2);
-    return Math.max(100, rows * 110 + 50);
+    let height = Math.max(100, rows * 110 + 50);
+
+    // Add space for AZ containers
+    if (subnet.availabilityZones && subnet.availabilityZones.length > 0) {
+      let maxAZHeight = 0;
+      for (const azGroup of subnet.availabilityZones) {
+        const azRows = Math.ceil(azGroup.resources.length / 2);
+        maxAZHeight = Math.max(maxAZHeight, Math.max(110, azRows * 110 + 50));
+      }
+      // AZ section + non-AZ resources below
+      const nonAZRows = Math.ceil(resourceCount / 2);
+      const nonAZHeight = resourceCount > 0 ? nonAZRows * 110 + 20 : 0;
+      height = maxAZHeight + nonAZHeight + 60;
+    }
+
+    return height;
   }
 }

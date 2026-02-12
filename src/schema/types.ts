@@ -27,10 +27,16 @@ export interface Resource extends BaseResource {
   containedIn?: string;  // ID or name of parent container
 }
 
+export interface AvailabilityZoneGroup {
+  zone: number;
+  resources: Resource[];
+}
+
 export interface Subnet extends BaseResource {
   type: 'subnet';
   addressPrefix?: string;
   resources?: Resource[];
+  availabilityZones?: AvailabilityZoneGroup[];  // AZ containers within subnet
   nsg?: string;  // Reference to NSG
 }
 
