@@ -29,7 +29,9 @@ const PORT = process.env.PORT || 3001;
 function isAllowedAoaiHost(hostWithPort: string): boolean {
   const raw = process.env.AZURE_OPENAI_ALLOWED_HOSTS;
   if (!raw) {
-    return false;
+    // If no allowlist is configured, fall back to the hostname suffix check
+    // that is already enforced before this function is called.
+    return true;
   }
   const entries = raw
     .split(',')
@@ -66,7 +68,7 @@ function isValidDeploymentName(name: unknown): name is string {
     return false;
   }
   // Disallow path separators and query/fragment characters implicitly by allow-listing safe chars.
-  const DEPLOYMENT_NAME_REGEX = /^[A-Za-z0-9_-]{1,64}$/;
+  const DEPLOYMENT_NAME_REGEX = /^[A-Za-z0-9._-]{1,64}$/;
   return DEPLOYMENT_NAME_REGEX.test(name);
 }
 
