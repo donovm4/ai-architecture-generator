@@ -9,7 +9,7 @@ import express from 'express';
 import cors from 'cors';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { generate } from './index.js';
 import { SYSTEM_PROMPT, parseAIResponse } from './ai/parser.js';
 import { DrawIOBuilder } from './drawio/xml-builder.js';
@@ -27,11 +27,47 @@ app.use(express.static(webDistPath));
 
 // ==================== Azure CLI helpers ====================
 
-function azCli(command: string): any {
+/** Input validation: only allow safe characters in Azure resource IDs, names, etc. */
+const SAFE_AZURE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+const SAFE_UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+function validateAzureId(value: string, label: string): string | null {
+  if (!value || !SAFE_AZURE_ID.test(value)) {
+    return `Invalid ${label}`;
+  }
+  return null;
+}
+
+function validateUUID(value: string, label: string): string | null {
+  if (!value || !SAFE_UUID.test(value)) {
+    return `Invalid ${label} format`;
+  }
+  return null;
+}
+
+function isValidAzureEndpoint(url: string): boolean {
   try {
-    const output = execSync(`az ${command} -o json 2>/dev/null`, {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === 'https:' &&
+      (parsed.hostname.endsWith('.openai.azure.com') ||
+        parsed.hostname.endsWith('.cognitiveservices.azure.com'))
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Run an Azure CLI command safely using execFileSync (no shell interpolation).
+ * @param args - Array of arguments to pass to `az` (excluding `-o json`)
+ */
+function azCli(args: string[]): any {
+  try {
+    const output = execFileSync('az', [...args, '-o', 'json'], {
       encoding: 'utf-8',
       timeout: 30000,
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
     return JSON.parse(output);
   } catch {
@@ -41,7 +77,7 @@ function azCli(command: string): any {
 
 function getAccessToken(resource: string): string | null {
   try {
-    const result = azCli(`account get-access-token --resource ${resource}`);
+    const result = azCli(['account', 'get-access-token', '--resource', resource]);
     return result?.accessToken || null;
   } catch {
     return null;
@@ -55,7 +91,7 @@ function getAccessToken(resource: string): string | null {
  * Check if user is logged in via Azure CLI
  */
 app.get('/api/auth/status', (_req, res) => {
-  const account = azCli('account show');
+  const account = azCli(['account', 'show']);
   if (account) {
     res.json({
       authenticated: true,
@@ -82,13 +118,13 @@ app.get('/api/auth/status', (_req, res) => {
 app.get('/api/tenants', (_req, res) => {
   // az account tenant list doesn't return friendly names,
   // so we cross-reference with az account list which has tenantDisplayName
-  const tenants = azCli('account tenant list');
+  const tenants = azCli(['account', 'tenant', 'list']);
   if (!tenants) {
     return res.status(401).json({ error: 'Not authenticated. Run "az login" first.' });
   }
 
   // Build a tenant name map from subscriptions (which have tenantDisplayName)
-  const subs = azCli('account list') || [];
+  const subs = azCli(['account', 'list']) || [];
   const nameMap = new Map<string, string>();
   for (const s of subs) {
     if (s.tenantId && s.tenantDisplayName && !nameMap.has(s.tenantId)) {
@@ -110,14 +146,18 @@ app.get('/api/tenants', (_req, res) => {
  */
 app.post('/api/tenants/:tenantId/select', (req, res) => {
   const { tenantId } = req.params;
+  const err = validateUUID(tenantId, 'tenantId');
+  if (err) return res.status(400).json({ error: err });
+
   try {
-    execSync(`az login --tenant ${tenantId} --allow-no-subscriptions -o none 2>/dev/null`, {
+    execFileSync('az', ['login', '--tenant', tenantId, '--allow-no-subscriptions', '-o', 'none'], {
       encoding: 'utf-8',
       timeout: 60000,
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: `Failed to switch tenant: ${err.message}` });
+  } catch (error: any) {
+    res.status(500).json({ error: `Failed to switch tenant: ${error.message}` });
   }
 });
 
@@ -126,7 +166,7 @@ app.post('/api/tenants/:tenantId/select', (req, res) => {
  * List available subscriptions
  */
 app.get('/api/subscriptions', (_req, res) => {
-  const subs = azCli('account subscription list');
+  const subs = azCli(['account', 'subscription', 'list']);
   if (!subs) {
     return res.status(401).json({ error: 'Not authenticated. Run "az login" first.' });
   }
@@ -158,9 +198,10 @@ function isChatModel(modelName: string): boolean {
 
 /** Parse deployments from a resource and return only chat-capable ones */
 function getChatDeployments(subId: string, name: string, rg: string) {
-  const deployments = azCli(
-    `cognitiveservices account deployment list --subscription ${subId} --name ${name} --resource-group "${rg}"`
-  );
+  const deployments = azCli([
+    'cognitiveservices', 'account', 'deployment', 'list',
+    '--subscription', subId, '--name', name, '--resource-group', rg,
+  ]);
   if (!deployments) return [];
   return deployments
     .filter((d: any) => isChatModel(d.properties?.model?.name || ''))
@@ -182,11 +223,13 @@ function getChatDeployments(subId: string, name: string, rg: string) {
  */
 app.get('/api/subscriptions/:subId/openai-resources', (req, res) => {
   const { subId } = req.params;
+  const err = validateUUID(subId, 'subscriptionId');
+  if (err) return res.status(400).json({ error: err });
 
   // Fetch ALL Cognitive Services accounts and filter client-side for reliability
-  const allResources = azCli(
-    `cognitiveservices account list --subscription ${subId}`
-  );
+  const allResources = azCli([
+    'cognitiveservices', 'account', 'list', '--subscription', subId,
+  ]);
   if (!allResources) {
     return res.status(500).json({ error: 'Failed to list Cognitive Services resources. Check your subscription access.' });
   }
@@ -227,6 +270,15 @@ app.get('/api/subscriptions/:subId/openai-resources/:name/deployments', (req, re
   const { subId, name } = req.params;
   const rg = (req.query.rg as string) || '';
 
+  const subErr = validateUUID(subId, 'subscriptionId');
+  if (subErr) return res.status(400).json({ error: subErr });
+  const nameErr = validateAzureId(name, 'resource name');
+  if (nameErr) return res.status(400).json({ error: nameErr });
+  if (rg) {
+    const rgErr = validateAzureId(rg, 'resource group');
+    if (rgErr) return res.status(400).json({ error: rgErr });
+  }
+
   const chatDeploys = getChatDeployments(subId, name, rg);
   if (chatDeploys.length === 0) {
     return res.json([]);
@@ -262,6 +314,9 @@ app.post('/api/generate/stream', async (req, res) => {
     }
     if (!endpoint || !deploymentName) {
       return res.status(400).json({ error: 'Azure OpenAI endpoint and deploymentName are required.' });
+    }
+    if (!isValidAzureEndpoint(endpoint)) {
+      return res.status(400).json({ error: 'Invalid Azure OpenAI endpoint. Must be an https://*.openai.azure.com or *.cognitiveservices.azure.com URL.' });
     }
 
     // Set up SSE headers
@@ -440,6 +495,9 @@ app.post('/api/generate', async (req, res) => {
 
     // AI mode: use Azure OpenAI with CLI-acquired bearer token
     if (endpoint && deploymentName) {
+      if (!isValidAzureEndpoint(endpoint)) {
+        return res.status(400).json({ error: 'Invalid Azure OpenAI endpoint. Must be an https://*.openai.azure.com or *.cognitiveservices.azure.com URL.' });
+      }
       console.log(`  [AI] Generating with Azure OpenAI: ${deploymentName}`);
 
       const token = getAccessToken('https://cognitiveservices.azure.com');
@@ -568,7 +626,7 @@ app.get('*', (_req, res) => {
 
 app.listen(PORT, () => {
   // Check Azure CLI auth on startup
-  const account = azCli('account show');
+  const account = azCli(['account', 'show']);
   const authStatus = account
     ? `Logged in as ${account.user?.name}`
     : 'Not authenticated — run "az login"';

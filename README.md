@@ -4,6 +4,9 @@
 
 No Visio. No manual dragging. Just tell the AI what you need, and it builds a pixel-perfect architecture diagram with official Azure icons, proper network topology, and resource hierarchy.
 
+> **⚠️ Vibe Coded Project Disclaimer**
+> This project was largely built using AI-assisted "vibe coding" with GitHub Copilot. While functional and useful, it has not undergone the same level of review as production software. Use it at your own risk, and always review generated architecture diagrams against official [Azure Well-Architected Framework](https://learn.microsoft.com/en-us/azure/well-architected/) guidance and [Azure reference architectures](https://learn.microsoft.com/en-us/azure/architecture/browse/) before using them in real-world scenarios. AI-generated diagrams may contain inaccuracies or hallucinations.
+
 ---
 
 ## What It Does
@@ -287,6 +290,12 @@ export AZURE_OPENAI_DEPLOYMENT="gpt-5"
 
 npm run cli -- --prompt "Hub-spoke with ExpressRoute" --output my-diagram.drawio
 ```
+
+---
+
+## Acknowledgments
+
+This project was inspired by and draws ideas from Microsoft's [Azure Resource Inventory (ARI)](https://github.com/microsoft/ARI) project, particularly its approach to Draw.io diagram generation and Azure resource visualization. ARI is an excellent tool for documenting existing Azure environments, and its open-source implementation provided valuable reference for how Azure resources can be represented in Draw.io format. Full credit to the ARI team for their work.
 
 ---
 
