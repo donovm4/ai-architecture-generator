@@ -18,6 +18,27 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+/**
+ * Returns true if the given endpoint URL belongs to a trusted Azure AI host.
+ * This avoids substring checks that can be bypassed with crafted URLs.
+ */
+function isTrustedAzureAIEndpoint(endpoint: string): boolean {
+  if (!endpoint) return false;
+  try {
+    const url = new URL(endpoint);
+    const host = url.hostname.toLowerCase();
+    return (
+      host === 'openai.azure.com' ||
+      host === 'cognitiveservices.azure.com' ||
+      host.endsWith('.openai.azure.com') ||
+      host.endsWith('.cognitiveservices.azure.com')
+    );
+  } catch {
+    // Malformed URL: treat as untrusted
+    return false;
+  }
+}
+
 // Basic validation for Azure OpenAI deployment names to prevent SSRF via path injection.
 // Allows only alphanumeric characters, hyphens, and underscores, with a reasonable length limit.
 function isValidDeploymentName(name: unknown): name is string {
@@ -259,7 +280,7 @@ app.get('/api/subscriptions/:subId/openai-resources', (req, res) => {
   const candidates = allResources.filter((r: any) => {
     if (openAIKinds.has(r.kind)) return true;
     const ep = r.properties?.endpoint || '';
-    return ep.includes('.openai.azure.com') || ep.includes('.cognitiveservices.azure.com');
+    return isTrustedAzureAIEndpoint(ep);
   });
 
   // Only return resources that have at least one chat-capable deployment
