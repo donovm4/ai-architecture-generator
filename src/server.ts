@@ -88,16 +88,26 @@ function validateUUID(value: string, label: string): string | null {
   return null;
 }
 
-function isValidAzureEndpoint(url: string): boolean {
+/**
+ * Validate and parse an Azure OpenAI endpoint URL.
+ * Returns the parsed URL object if safe, or null if invalid.
+ * By returning the URL object directly, static analysis tools can trace
+ * that the fetch target was derived from a validated source.
+ */
+function getSafeAzureEndpoint(endpoint: string): URL | null {
   try {
-    const parsed = new URL(url);
-    return (
-      parsed.protocol === 'https:' &&
-      (parsed.hostname.endsWith('.openai.azure.com') ||
-        parsed.hostname.endsWith('.cognitiveservices.azure.com'))
-    );
+    const url = new URL(endpoint);
+    if (url.protocol !== 'https:') return null;
+    const hostname = url.hostname.toLowerCase();
+    if (
+      hostname.endsWith('.openai.azure.com') ||
+      hostname.endsWith('.cognitiveservices.azure.com')
+    ) {
+      return url;
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -354,23 +364,6 @@ Previous architecture:
 `;
 
 /**
- * Build a validated Azure OpenAI API URL from pre-validated components.
- * Both endpoint and deploymentName MUST be validated before calling this.
- */
-function buildAoaiUrl(endpoint: string, deploymentName: string): string {
-  const baseUrl = new URL(endpoint);
-  // Enforce only the expected Azure OpenAI hostnames
-  if (!baseUrl.hostname.endsWith('.openai.azure.com') &&
-      !baseUrl.hostname.endsWith('.cognitiveservices.azure.com')) {
-    throw new Error('Invalid Azure OpenAI endpoint hostname');
-  }
-  // Construct path safely instead of string interpolation
-  baseUrl.pathname = `/openai/deployments/${encodeURIComponent(deploymentName)}/chat/completions`;
-  baseUrl.searchParams.set('api-version', '2024-02-01');
-  return baseUrl.toString();
-}
-
-/**
  * POST /api/generate/stream
  * Generate a Draw.io diagram with SSE streaming progress.
  */
@@ -384,7 +377,8 @@ app.post('/api/generate/stream', async (req, res) => {
     if (!endpoint || !deploymentName) {
       return res.status(400).json({ error: 'Azure OpenAI endpoint and deploymentName are required.' });
     }
-    if (!isValidAzureEndpoint(endpoint)) {
+    const safeEndpointUrl = typeof endpoint === 'string' ? getSafeAzureEndpoint(endpoint) : null;
+    if (!safeEndpointUrl) {
       return res.status(400).json({ error: 'Invalid Azure OpenAI endpoint. Must be an https://*.openai.azure.com or *.cognitiveservices.azure.com URL.' });
     }
     // Validate deploymentName to prevent path manipulation and enforce a safe character set
@@ -429,8 +423,8 @@ app.post('/api/generate/stream', async (req, res) => {
       messages.push({ role: 'user', content: prompt });
     }
 
-    // Build Azure OpenAI URL from validated endpoint — inline so static analysis can trace the validation
-    const validatedUrl = new URL(endpoint);
+    // Build Azure OpenAI URL from validated endpoint — reuse the already-parsed safe URL object
+    const validatedUrl = safeEndpointUrl;
     validatedUrl.pathname = `/openai/deployments/${encodeURIComponent(deploymentName)}/chat/completions`;
     validatedUrl.searchParams.set('api-version', '2024-02-01');
     const aoaiUrl = validatedUrl.toString();
@@ -572,7 +566,8 @@ app.post('/api/generate', async (req, res) => {
 
     // AI mode: use Azure OpenAI with CLI-acquired bearer token
     if (endpoint && deploymentName) {
-      if (!isValidAzureEndpoint(endpoint)) {
+      const safeEndpointUrl = typeof endpoint === 'string' ? getSafeAzureEndpoint(endpoint) : null;
+      if (!safeEndpointUrl) {
         return res.status(400).json({ error: 'Invalid Azure OpenAI endpoint. Must be an https://*.openai.azure.com or *.cognitiveservices.azure.com URL.' });
       }
       if (!isValidDeploymentName(deploymentName)) {
@@ -587,8 +582,8 @@ app.post('/api/generate', async (req, res) => {
         });
       }
 
-      // Build Azure OpenAI URL from validated endpoint — inline so static analysis can trace the validation
-      const validatedUrl = new URL(endpoint);
+      // Build Azure OpenAI URL from validated endpoint — reuse the already-parsed safe URL object
+      const validatedUrl = safeEndpointUrl;
       validatedUrl.pathname = `/openai/deployments/${encodeURIComponent(deploymentName)}/chat/completions`;
       validatedUrl.searchParams.set('api-version', '2024-02-01');
       const aoaiUrl = validatedUrl.toString();
