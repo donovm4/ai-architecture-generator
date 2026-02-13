@@ -7,6 +7,7 @@
 
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -53,38 +54,15 @@ function isValidDeploymentName(name: unknown): name is string {
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// ==================== Rate limiting ====================
-
-/** Simple in-memory rate limiter per IP */
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
-const RATE_LIMIT_MAX = 30; // max requests per window
-
-function rateLimit(req: express.Request, res: express.Response): boolean {
-  const ip = req.ip || req.socket.remoteAddress || 'unknown';
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return false;
-  }
-
-  entry.count++;
-  if (entry.count > RATE_LIMIT_MAX) {
-    res.status(429).json({ error: 'Too many requests. Please try again later.' });
-    return true;
-  }
-  return false;
-}
-
-// Clean up stale rate limit entries every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of rateLimitMap) {
-    if (now > entry.resetAt) rateLimitMap.delete(ip);
-  }
-}, 300_000);
+// Rate limiting — uses express-rate-limit (recognized by CodeQL)
+const limiter = rateLimit({
+  windowMs: 60_000, // 1 minute
+  max: 30, // max 30 requests per minute per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please try again later.' },
+});
+app.use(limiter);
 
 // Serve static files from built web app (production)
 const webDistPath = resolve(__dirname, '../web/dist');
@@ -218,7 +196,6 @@ app.get('/api/tenants', (_req, res) => {
  * Switch active tenant
  */
 app.post('/api/tenants/:tenantId/select', (req, res) => {
-  if (rateLimit(req, res)) return;
   const { tenantId } = req.params;
   const err = validateUUID(tenantId, 'tenantId');
   if (err) return res.status(400).json({ error: err });
@@ -398,7 +375,6 @@ function buildAoaiUrl(endpoint: string, deploymentName: string): string {
  * Generate a Draw.io diagram with SSE streaming progress.
  */
 app.post('/api/generate/stream', async (req, res) => {
-  if (rateLimit(req, res)) return;
   try {
     const { prompt, title, endpoint, deploymentName, previousArchitecture } = req.body;
 
@@ -453,7 +429,11 @@ app.post('/api/generate/stream', async (req, res) => {
       messages.push({ role: 'user', content: prompt });
     }
 
-    const aoaiUrl = buildAoaiUrl(endpoint, deploymentName);
+    // Build Azure OpenAI URL from validated endpoint — inline so static analysis can trace the validation
+    const validatedUrl = new URL(endpoint);
+    validatedUrl.pathname = `/openai/deployments/${encodeURIComponent(deploymentName)}/chat/completions`;
+    validatedUrl.searchParams.set('api-version', '2024-02-01');
+    const aoaiUrl = validatedUrl.toString();
 
     console.log(`  [AI/Stream] Generating with Azure OpenAI: ${deploymentName}`);
 
@@ -583,7 +563,6 @@ app.post('/api/generate/stream', async (req, res) => {
  *   { prompt: string, title?: string, endpoint: string, deploymentName: string, previousArchitecture?: object }
  */
 app.post('/api/generate', async (req, res) => {
-  if (rateLimit(req, res)) return;
   try {
     const { prompt, title, endpoint, deploymentName, previousArchitecture } = req.body;
 
@@ -608,7 +587,11 @@ app.post('/api/generate', async (req, res) => {
         });
       }
 
-      const aoaiUrl = buildAoaiUrl(endpoint, deploymentName);
+      // Build Azure OpenAI URL from validated endpoint — inline so static analysis can trace the validation
+      const validatedUrl = new URL(endpoint);
+      validatedUrl.pathname = `/openai/deployments/${encodeURIComponent(deploymentName)}/chat/completions`;
+      validatedUrl.searchParams.set('api-version', '2024-02-01');
+      const aoaiUrl = validatedUrl.toString();
 
       // Build messages array (with optional refinement)
       const messages: Array<{ role: string; content: string }> = [
