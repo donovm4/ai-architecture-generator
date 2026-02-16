@@ -112,14 +112,26 @@ export interface Architecture {
   onPremises?: OnPremises[];         // On-premises locations
   connections?: Connection[];
   globalResources?: Resource[];      // Resources outside regions (Traffic Manager, Front Door)
+  /** Animation configuration — when enabled, connections animate in draw.io */
+  animation?: {
+    enabled: boolean;
+    defaultStyle?: 'flow' | 'pulse' | 'marching' | 'glow';
+    speed?: 'slow' | 'normal' | 'fast';
+  };
 }
 
 export interface Connection {
   from: string;  // Resource ID or name
   to: string;    // Resource ID or name
   label?: string;
-  style?: 'solid' | 'dashed' | 'expressroute' | 'vpn' | 'peering';
+  style?: 'solid' | 'dashed' | 'expressroute' | 'vpn' | 'peering' | 'animated';
   bidirectional?: boolean;
+  /** Enable animation on this specific connection */
+  animated?: boolean;
+  /** Animation preset to apply (default: 'flow') */
+  animationStyle?: 'flow' | 'pulse' | 'marching' | 'glow';
+  /** Override stroke color for animated connections */
+  animationColor?: string;
 }
 
 // ==================== LAYOUT TYPES ====================

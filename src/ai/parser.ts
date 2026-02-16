@@ -14,6 +14,11 @@ export interface AIProvider {
 export interface ParsedResponse {
   title?: string;
   description?: string;
+  animation?: {
+    enabled: boolean;
+    defaultStyle?: 'flow' | 'pulse' | 'marching' | 'glow';
+    speed?: 'slow' | 'normal' | 'fast';
+  };
   resources: Array<{
     type: string;
     name: string;
@@ -28,6 +33,9 @@ export interface ParsedResponse {
     to: string;
     style?: string;
     label?: string;
+    animated?: boolean;
+    animationStyle?: 'flow' | 'pulse' | 'marching' | 'glow';
+    animationColor?: string;
   }>;
   regions?: string[];
   subscriptions?: Array<{
@@ -53,6 +61,9 @@ export interface ParsedResponse {
       to: string;
       style?: string;
       label?: string;
+      animated?: boolean;
+      animationStyle?: 'flow' | 'pulse' | 'marching' | 'glow';
+      animationColor?: string;
     }>;
     regions?: string[];
     hasOnPremises?: boolean;
@@ -106,7 +117,16 @@ DEVOPS: devops
 WEB: staticWebApp, notificationHub, communicationService
 MANAGEMENT: recoveryVault, automationAccount, arcMachine, backupCenter, policy, advisor, migrate
 
-Connection styles: solid, dashed, expressroute, vpn, peering
+Connection styles: solid, dashed, expressroute, vpn, peering, animated
+
+Animation support:
+- When the user asks for "animated", "flowing", "live", or "dynamic" diagrams, add "animation": { "enabled": true } at the top level and/or set "animated": true on individual connections.
+- When animation.enabled is true, ALL connections will be animated by default (flowing dots along paths) — this looks great when opened in draw.io.
+- You can set "animationStyle" on individual connections: "flow" (flowing dot — default, most impressive), "pulse" (thick pulsing lines), "marching" (classic dashed animation), "glow" (glowing flow with shadow).
+- Use "animationColor" on a connection to override its color. Semantic colors: "#2196F3" (blue, primary), "#4CAF50" (green, success), "#FF9800" (orange, warning), "#F44336" (red, error), "#9C27B0" (purple, data), "#00BCD4" (cyan, control), "#FF5722" (deep orange, async), "#E91E63" (pink, AI/ML).
+- Example connection with animation: { "from": "api-gateway", "to": "backend", "label": "API calls", "animated": true, "animationStyle": "flow", "animationColor": "#2196F3" }
+- For the top-level animation config: { "animation": { "enabled": true, "defaultStyle": "flow" } }
+- If the user does NOT ask for animation, omit the animation field entirely.
 
 Architecture patterns to recognize:
 - "hub and spoke" or "hub-spoke" → Create hub VNET with firewall/gateway, spoke VNETs peered to hub
@@ -160,6 +180,7 @@ export function parseAIResponse(response: ParsedResponse, title?: string): Archi
     const arch: Architecture = {
       title: title || response.title || 'Azure Architecture',
       description: response.description,
+      animation: response.animation,
       pages: response.pages.map(page => {
         const pageResponse: ParsedResponse = {
           resources: page.resources || [],
@@ -180,6 +201,9 @@ export function parseAIResponse(response: ParsedResponse, title?: string): Archi
               to: c.to,
               label: c.label,
               style: c.style as any,
+              animated: c.animated,
+              animationStyle: c.animationStyle,
+              animationColor: c.animationColor,
             })) || [],
             onPremises: page.hasOnPremises ? [{
               name: 'On-Premises Datacenter',
@@ -196,6 +220,9 @@ export function parseAIResponse(response: ParsedResponse, title?: string): Archi
               to: c.to,
               label: c.label,
               style: c.style as any,
+              animated: c.animated,
+              animationStyle: c.animationStyle,
+              animationColor: c.animationColor,
             })) || [],
             onPremises: page.hasOnPremises ? [{
               name: 'On-Premises Datacenter',
@@ -211,6 +238,7 @@ export function parseAIResponse(response: ParsedResponse, title?: string): Archi
   const arch: Architecture = {
     title: title || response.title || 'Azure Architecture',
     description: response.description,
+    animation: response.animation,
     connections: [],
   };
 
@@ -298,6 +326,9 @@ export function parseAIResponse(response: ParsedResponse, title?: string): Archi
     to: c.to,
     label: c.label,
     style: c.style as any,
+    animated: c.animated,
+    animationStyle: c.animationStyle,
+    animationColor: c.animationColor,
   })) || [];
 
   // Auto-add hub-to-hub global VNet peering for multi-region hub-spoke

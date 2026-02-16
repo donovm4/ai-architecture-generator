@@ -27,5 +27,8 @@ output/*.drawio
 *.log
 npm-debug.log*
 
+# Private planning docs
+future-plans.md
+
 # TypeScript cache
 *.tsbuildinfo

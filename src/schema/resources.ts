@@ -1584,3 +1584,21 @@ export function listAllResources(): string[] {
 export function listAllAliases(): Record<string, string> {
   return { ...RESOURCE_ALIASES };
 }
+
+// ==================== GENERIC RESOURCES RE-EXPORT ====================
+
+export {
+  GENERIC_RESOURCES,
+  GENERIC_CONTAINERS,
+  GENERIC_CONTAINER_STYLES,
+  GENERIC_ALIASES,
+  resolveGenericResourceType,
+  getGenericResource,
+  listGenericResources,
+  listGenericContainers,
+} from './generic-resources.js';
+
+export type {
+  GenericResourceDefinition,
+  GenericResourceCategory,
+} from './generic-resources.js';

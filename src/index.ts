@@ -5,11 +5,13 @@
  */
 
 import { DrawIOBuilder } from './drawio/xml-builder.js';
+import { GenericDiagramBuilder } from './drawio/generic-builder.js';
 import { parseAIResponse, type AIProvider, type ParsedResponse } from './ai/parser.js';
 import { ClaudeProvider } from './ai/providers/claude.js';
 import { OpenAIProvider } from './ai/providers/openai.js';
 import { AzureOpenAIProvider } from './ai/providers/azure-openai.js';
 import type { Architecture, Region, Subscription } from './schema/types.js';
+import type { GenericArchitecture } from './schema/generic-types.js';
 
 export interface GenerateOptions {
   prompt: string;
@@ -92,11 +94,22 @@ function createProvider(
   }
 }
 
+/**
+ * Generate a Draw.io diagram from a GenericArchitecture definition (non-Azure)
+ */
+export function generateGeneric(arch: GenericArchitecture): string {
+  const builder = new GenericDiagramBuilder();
+  return builder.generate(arch);
+}
+
 // Re-export types and utilities
 export { DrawIOBuilder } from './drawio/xml-builder.js';
+export { GenericDiagramBuilder } from './drawio/generic-builder.js';
 export { parseAIResponse, SYSTEM_PROMPT } from './ai/parser.js';
 export { ClaudeProvider } from './ai/providers/claude.js';
 export { OpenAIProvider } from './ai/providers/openai.js';
 export { AzureOpenAIProvider } from './ai/providers/azure-openai.js';
 export { RESOURCES, RESOURCE_ALIASES, AZURE_ICONS, CONTAINER_STYLES, resolveResourceType, getResourcesByCategory, listAllResources } from './schema/resources.js';
+export { GENERIC_RESOURCES, GENERIC_CONTAINERS, GENERIC_CONTAINER_STYLES, GENERIC_ALIASES, resolveGenericResourceType } from './schema/generic-resources.js';
 export type * from './schema/types.js';
+export type * from './schema/generic-types.js';

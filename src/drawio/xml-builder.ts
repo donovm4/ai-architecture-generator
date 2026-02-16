@@ -8,6 +8,7 @@ import { create } from 'xmlbuilder2';
 import { generateCellId, resetCounter } from '../utils/id-generator.js';
 import { RESOURCES, CONTAINER_STYLES, type ResourceDefinition } from '../schema/resources.js';
 import type { Architecture, Resource, Subscription, ResourceGroup, Region, VNet, Subnet, Connection, Position, OnPremises, DiagramPage } from '../schema/types.js';
+import { buildAnimatedEdgeStyle, ANIMATION_STYLES, type ConnectionAnimation, type AnimationStyleName } from './animation-styles.js';
 
 interface CellInfo {
   id: string;
@@ -29,6 +30,8 @@ export class DrawIOBuilder {
   private usedConnectionStyles: Set<string> = new Set();
   /** Absolute bounds of every container (keyed by cell id) */
   private containerAbsBounds: Map<string, ContainerBounds> = new Map();
+  /** Architecture-level animation config (set per page render) */
+  private animationConfig?: Architecture['animation'];
 
   constructor() {
     resetCounter();
@@ -59,6 +62,7 @@ export class DrawIOBuilder {
           connections: page.connections,
           globalResources: page.globalResources,
           onPremises: page.onPremises,
+          animation: arch.animation,
         };
         if (page.resourceGroups) {
           pageArch.subscription = {
@@ -85,6 +89,7 @@ export class DrawIOBuilder {
     this.usedResourceTypes.clear();
     this.usedConnectionStyles.clear();
     this.containerAbsBounds.clear();
+    this.animationConfig = arch.animation;
 
     const diagram = doc.ele('diagram', {
       id: generateCellId('diagram'),
@@ -782,6 +787,48 @@ export class DrawIOBuilder {
         case 'peering':
           style += 'strokeColor=#009900;strokeWidth=2;endArrow=none;';
           break;
+        case 'animated':
+          // 'animated' as a style — handled via animation logic below
+          break;
+      }
+
+      // ==================== ANIMATION ====================
+      // Determine whether this connection should be animated:
+      //   1. Connection has `animated: true` explicitly
+      //   2. Connection has `style: 'animated'`
+      //   3. Connection has an `animationStyle` set
+      //   4. Architecture-level animation.enabled is true (applies to all)
+      //
+      // A connection can opt OUT by setting `animated: false` even when the
+      // architecture-level flag is on.
+
+      const archAnimEnabled = this.animationConfig?.enabled === true;
+      const connExplicitlyDisabled = conn.animated === false;
+      const connExplicitlyEnabled =
+        conn.animated === true ||
+        conn.style === 'animated' ||
+        conn.animationStyle !== undefined;
+
+      const shouldAnimate =
+        (connExplicitlyEnabled || archAnimEnabled) && !connExplicitlyDisabled;
+
+      if (shouldAnimate) {
+        // Resolve the animation preset to use
+        const animStyle: AnimationStyleName =
+          conn.animationStyle ??
+          (this.animationConfig?.defaultStyle as AnimationStyleName | undefined) ??
+          'flow';
+
+        const animation: ConnectionAnimation = {
+          type: animStyle,
+          color: conn.animationColor,
+          speed: this.animationConfig?.speed,
+        };
+
+        style = buildAnimatedEdgeStyle(animation, style);
+
+        // Track for legend
+        this.usedConnectionStyles.add('animated');
       }
 
       // Check if containers lie between source and target
@@ -846,6 +893,7 @@ export class DrawIOBuilder {
     if (this.usedConnectionStyles.has('vpn')) connStyles.push({ label: 'VPN', color: '#0066CC', dashed: true });
     if (this.usedConnectionStyles.has('peering')) connStyles.push({ label: 'VNet Peering', color: '#009900', dashed: false });
     if (this.usedConnectionStyles.has('dashed')) connStyles.push({ label: 'Dashed', color: '#666666', dashed: true });
+    if (this.usedConnectionStyles.has('animated')) connStyles.push({ label: 'Animated Flow', color: '#2196F3', dashed: false });
     if (connStyles.length > 0) totalHeight += 20 + connStyles.length * itemHeight;
 
     const legendId = this.nextId();
