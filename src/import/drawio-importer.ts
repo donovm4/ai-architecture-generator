@@ -173,25 +173,20 @@ function extractCell(raw: any): ParsedCell | null {
  */
 function stripHtml(text: string): string {
   if (!text) return '';
-  // Decode HTML entities first, then strip tags.
-  // Loop to handle nested/double-encoded entities (e.g. &amp;lt; → &lt; → <).
+  // Strip all HTML tags first (loop until no tags remain to handle partial/nested tags)
   let result = text.replace(/<br\s*\/?>/gi, ' ');
   let prev = '';
-  for (let i = 0; i < 3 && result !== prev; i++) {
-    prev = result;
-    result = result
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'");
-  }
-  // Strip all HTML tags (loop until no tags remain to handle partial/nested tags)
-  prev = '';
   while (result !== prev) {
     prev = result;
     result = result.replace(/<[^>]*>/g, '');
   }
+  // Decode HTML entities (single pass — input is Draw.io XML, not double-encoded)
+  result = result
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&gt;/g, '>')
+    .replace(/&lt;/g, '<')
+    .replace(/&amp;/g, '&');
   return result.replace(/\s+/g, ' ')
     .trim();
 }
