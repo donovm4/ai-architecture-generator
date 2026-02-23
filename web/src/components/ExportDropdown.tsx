@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 
-export type ExportFormat = 'drawio' | 'png' | 'svg' | 'pdf' | 'xmlpng' | 'json' | 'bicep' | 'terraform';
+export type ExportFormat = 'drawio' | 'png' | 'svg' | 'pdf' | 'xmlpng' | 'json' | 'bicep' | 'terraform' | 'viewxml' | 'copyxml';
 
 export interface PngExportOptions {
   scale: number;
@@ -124,6 +124,28 @@ export function ExportDropdown({ isLoaded, exporting, onExport, hasJson }: Expor
             <span className="export-dropdown-label">
               Draw.io File
               <span className="export-dropdown-hint">.drawio</span>
+            </span>
+          </button>
+
+          <button
+            className="export-dropdown-item"
+            onClick={() => handleItemClick('viewxml')}
+          >
+            <span className="export-dropdown-icon">📝</span>
+            <span className="export-dropdown-label">
+              View XML Source
+              <span className="export-dropdown-hint">toggle raw XML</span>
+            </span>
+          </button>
+
+          <button
+            className="export-dropdown-item"
+            onClick={() => handleItemClick('copyxml')}
+          >
+            <span className="export-dropdown-icon">📋</span>
+            <span className="export-dropdown-label">
+              Copy XML
+              <span className="export-dropdown-hint">to clipboard</span>
             </span>
           </button>
 

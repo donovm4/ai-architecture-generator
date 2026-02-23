@@ -15,8 +15,7 @@ import { generate } from './index.js';
 import { SYSTEM_PROMPT, parseAIResponse, GENERIC_SYSTEM_PROMPT, GENERIC_REFINEMENT_PROMPT, parseGenericAIResponse } from './ai/parser.js';
 import { DrawIOBuilder } from './drawio/xml-builder.js';
 import { GenericDiagramBuilder } from './drawio/generic-builder.js';
-import { assess } from './assessment/assessor.js';
-import type { Pillar } from './assessment/assessor.js';
+import { assessWithoutAI as assess, gatherChecklists, buildAssessmentPrompt, parseAssessmentResponse } from './assessment/assessor.js';
 import { validateArchitecture } from './validation/validator.js';
 import { getTemplateList, getTemplateById } from './templates/index.js';
 import { importDrawio } from './import/drawio-importer.js';
@@ -893,38 +892,276 @@ app.get('/api/import/resource-types', (_req, res) => {
 
 /**
  * POST /api/assess
- * Run WAF-style assessment on an architecture.
+ * AI-powered WAF assessment with SSE streaming.
  *
  * Body:
- *   { architecture: Architecture, pillars?: ('cost'|'security'|'reliability'|'performance')[] }
- * Returns: AssessmentResult
+ *   { architecture: Architecture, endpoint: string, deploymentName: string }
+ * Streams SSE events: status, topology, result, error, done
  */
-app.post('/api/assess', (req, res) => {
+app.post('/api/assess', async (req, res) => {
   try {
-    const { architecture, pillars } = req.body;
+    const { architecture, endpoint, deploymentName } = req.body;
 
     if (!architecture || typeof architecture !== 'object' || Array.isArray(architecture)) {
       return res.status(400).json({ error: 'Architecture must be a non-null object.' });
     }
 
-    // Validate pillars if provided
-    const validPillars: Pillar[] = ['cost', 'security', 'reliability', 'performance'];
-    if (pillars) {
-      if (!Array.isArray(pillars)) {
-        return res.status(400).json({ error: 'pillars must be an array.' });
-      }
-      for (const p of pillars) {
-        if (!validPillars.includes(p as Pillar)) {
-          return res.status(400).json({ error: `Invalid pillar: "${p}". Valid: ${validPillars.join(', ')}` });
-        }
-      }
+    // If no AI credentials, fall back to non-AI assessment
+    if (!endpoint || !deploymentName) {
+      const result = assess(architecture);
+      return res.json(result);
     }
 
-    const result = assess(architecture, pillars as Pillar[] | undefined);
-    res.json(result);
+    // Validate endpoint (same as /api/generate/stream)
+    let aoaiUrl: string;
+    try {
+      const url = new URL(endpoint);
+      if (url.protocol !== 'https:') {
+        return res.status(400).json({ error: 'Invalid Azure OpenAI endpoint protocol.' });
+      }
+      const host = url.hostname.toLowerCase();
+      if (!host.endsWith('.openai.azure.com') && !host.endsWith('.cognitiveservices.azure.com')) {
+        return res.status(400).json({ error: 'Invalid endpoint host.' });
+      }
+      const port = url.port || '443';
+      if (!isAllowedAoaiHost(`${host}:${port}`)) {
+        return res.status(400).json({ error: 'Endpoint host not in allowed list.' });
+      }
+      if (!isValidDeploymentName(deploymentName)) {
+        return res.status(400).json({ error: 'Invalid deploymentName.' });
+      }
+      url.hash = '';
+      url.pathname = `/openai/deployments/${encodeURIComponent(deploymentName)}/chat/completions`;
+      url.search = '';
+      url.searchParams.set('api-version', '2024-02-01');
+      aoaiUrl = url.toString();
+    } catch {
+      return res.status(400).json({ error: 'Invalid endpoint URL.' });
+    }
+
+    // Set up SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const sendEvent = (type: string, data: any) => {
+      res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    // Step 1: Gather checklists and topology findings
+    sendEvent('status', { message: 'Analyzing architecture topology...' });
+    const { serviceChecklists, crossCuttingItems, topologyFindings } = gatherChecklists(architecture);
+
+    // Send topology findings immediately (these don't need AI)
+    sendEvent('topology', { findings: topologyFindings });
+
+    // Step 2: Get AI token
+    sendEvent('status', { message: 'Running AI assessment...' });
+    const token = getAccessToken('https://cognitiveservices.azure.com');
+    if (!token) {
+      sendEvent('error', { error: 'Could not acquire token. Run "az login".' });
+      res.end();
+      return;
+    }
+
+    // Step 3: Build prompt and call AI
+    const prompt = buildAssessmentPrompt(architecture, serviceChecklists, crossCuttingItems);
+    console.log(`  [Assessment] Calling AI with ${serviceChecklists.length} service checklists`);
+
+    const aiResponse = await fetch(aoaiUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages: [
+          { role: 'system', content: 'You are an Azure Well-Architected Framework assessor. Return only valid JSON arrays.' },
+          { role: 'user', content: prompt },
+        ],
+        max_completion_tokens: 8000,
+      }),
+    });
+
+    if (!aiResponse.ok) {
+      const errText = await aiResponse.text();
+      console.error('  [Assessment] AI error:', aiResponse.status, errText);
+      sendEvent('error', { error: `AI assessment failed (${aiResponse.status}): ${errText.substring(0, 200)}` });
+      // Fall back to topology-only results
+      sendEvent('result', assess(architecture));
+      res.end();
+      return;
+    }
+
+    const aiResult: any = await aiResponse.json();
+    const aiText = aiResult.choices?.[0]?.message?.content || '[]';
+    const aiFindings = parseAssessmentResponse(aiText);
+
+    console.log(`  [Assessment] AI returned ${aiFindings.length} findings`);
+
+    // Step 4: Build final result
+    const allFindings = [...topologyFindings, ...aiFindings];
+    const byPillar: Record<string, number> = {};
+    const bySeverity: Record<string, number> = {};
+    for (const f of allFindings) {
+      byPillar[f.pillar] = (byPillar[f.pillar] || 0) + 1;
+      const sev = f.severity === 'critical' ? 'High' : f.severity === 'warning' ? 'Medium' : 'Low';
+      bySeverity[sev] = (bySeverity[sev] || 0) + 1;
+    }
+
+    const result = {
+      serviceChecklists: [],
+      crossCuttingItems: [],
+      topologyFindings,
+      aiFindings,
+      summary: {
+        totalItems: allFindings.length,
+        byPillar,
+        bySeverity,
+        servicesAssessed: serviceChecklists.map(sc => sc.service),
+      },
+    };
+
+    sendEvent('result', result);
+    sendEvent('done', {});
+    res.end();
   } catch (error: any) {
     console.error('  [Error] Assessment failed:', error);
-    res.status(500).json({ error: error.message || 'Assessment failed' });
+    // If headers already sent (SSE mode), send error event
+    if (res.headersSent) {
+      res.write(`event: error\ndata: ${JSON.stringify({ error: error.message || 'Assessment failed' })}\n\n`);
+      res.end();
+    } else {
+      res.status(500).json({ error: error.message || 'Assessment failed' });
+    }
+  }
+});
+
+// ==================== Cost & SLA Estimation ====================
+
+import { buildCostSlaPrompt, parseCostSlaResponse } from './assessment/cost-estimator.js';
+
+/**
+ * POST /api/estimate
+ * AI-powered cost estimation and SLA analysis with SSE streaming.
+ *
+ * Body: { architecture, endpoint, deploymentName, region? }
+ */
+app.post('/api/estimate', async (req, res) => {
+  try {
+    const { architecture, endpoint, deploymentName, region } = req.body;
+
+    if (!architecture || typeof architecture !== 'object' || Array.isArray(architecture)) {
+      return res.status(400).json({ error: 'Architecture must be a non-null object.' });
+    }
+    if (!endpoint || !deploymentName) {
+      return res.status(400).json({ error: 'Azure OpenAI endpoint and deploymentName are required.' });
+    }
+
+    // Validate endpoint
+    let aoaiUrl: string;
+    try {
+      const url = new URL(endpoint);
+      if (url.protocol !== 'https:') {
+        return res.status(400).json({ error: 'Invalid endpoint protocol.' });
+      }
+      const host = url.hostname.toLowerCase();
+      if (!host.endsWith('.openai.azure.com') && !host.endsWith('.cognitiveservices.azure.com')) {
+        return res.status(400).json({ error: 'Invalid endpoint host.' });
+      }
+      const port = url.port || '443';
+      if (!isAllowedAoaiHost(`${host}:${port}`)) {
+        return res.status(400).json({ error: 'Endpoint host not in allowed list.' });
+      }
+      if (!isValidDeploymentName(deploymentName)) {
+        return res.status(400).json({ error: 'Invalid deploymentName.' });
+      }
+      url.hash = '';
+      url.pathname = `/openai/deployments/${encodeURIComponent(deploymentName)}/chat/completions`;
+      url.search = '';
+      url.searchParams.set('api-version', '2024-02-01');
+      aoaiUrl = url.toString();
+    } catch {
+      return res.status(400).json({ error: 'Invalid endpoint URL.' });
+    }
+
+    // SSE setup
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const sendEvent = (type: string, data: any) => {
+      res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    sendEvent('status', { message: 'Estimating costs and analyzing SLA...' });
+
+    const token = getAccessToken('https://cognitiveservices.azure.com');
+    if (!token) {
+      sendEvent('error', { error: 'Could not acquire token. Run "az login".' });
+      res.end();
+      return;
+    }
+
+    // Determine region from architecture or use provided
+    const archRegion = region
+      || architecture?.subscription?.resourceGroups?.[0]?.resources?.[0]?.region
+      || architecture?.regions?.[0]?.name
+      || 'westeurope';
+
+    const prompt = buildCostSlaPrompt(architecture, archRegion);
+    console.log(`  [Estimate] Calling AI for cost/SLA estimation (region: ${archRegion})`);
+
+    const aiResponse = await fetch(aoaiUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages: [
+          { role: 'system', content: 'You are an Azure cost estimation expert. Return only valid JSON.' },
+          { role: 'user', content: prompt },
+        ],
+        max_completion_tokens: 8000,
+      }),
+    });
+
+    if (!aiResponse.ok) {
+      const errText = await aiResponse.text();
+      console.error('  [Estimate] AI error:', aiResponse.status, errText);
+      sendEvent('error', { error: `Cost estimation failed (${aiResponse.status}): ${errText.substring(0, 200)}` });
+      res.end();
+      return;
+    }
+
+    const aiResult: any = await aiResponse.json();
+    const aiText = aiResult.choices?.[0]?.message?.content || '{}';
+    const result = parseCostSlaResponse(aiText);
+
+    if (!result) {
+      sendEvent('error', { error: 'Failed to parse cost estimation results.' });
+      res.end();
+      return;
+    }
+
+    console.log(`  [Estimate] ${result.lineItems.length} line items, $${result.totalMonthly.toFixed(2)}/mo, ${result.slaPaths.length} SLA paths`);
+
+    sendEvent('result', result);
+    sendEvent('done', {});
+    res.end();
+  } catch (error: any) {
+    console.error('  [Error] Cost estimation failed:', error);
+    if (res.headersSent) {
+      res.write(`event: error\ndata: ${JSON.stringify({ error: error.message })}\n\n`);
+      res.end();
+    } else {
+      res.status(500).json({ error: error.message || 'Cost estimation failed' });
+    }
   }
 });
 

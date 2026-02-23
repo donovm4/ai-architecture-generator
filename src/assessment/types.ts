@@ -1,70 +1,92 @@
 /**
- * WAF-Style Architecture Assessment Types
+ * Assessment Types
  *
- * Types for assessing Azure architectures across the four Well-Architected
- * Framework pillars: Cost, Security, Reliability, and Performance.
+ * Types for the checklist-based WAF assessment engine,
+ * powered by Microsoft's Azure Review Checklists.
  */
 
+/** A single item from a Microsoft Azure Review Checklist */
+export interface ChecklistItem {
+  guid: string;
+  id: string;
+  category: string;
+  subcategory: string;
+  text: string;
+  waf: string; // 'Security' | 'Reliability' | 'Performance' | 'Cost' | 'Operations' | 'Governance'
+  severity: 'High' | 'Medium' | 'Low';
+  service?: string;
+  link?: string;
+}
+
+/** A topology-level finding from custom architecture rules */
+export interface AssessmentFinding {
+  id: string;
+  severity: 'critical' | 'warning' | 'info';
+  pillar: string;
+  title: string;
+  description: string;
+  impact: string;
+  remediation: string;
+  autoFixPrompt?: string;
+}
+
+/** Service-specific checklist result — items grouped by service in the architecture */
+export interface ServiceChecklist {
+  resourceType: string;
+  resourceName: string;
+  service: string;
+  checklistFile: string;
+  items: ChecklistItem[];
+}
+
+/** Full assessment result */
 export interface AssessmentResult {
-  pillars: {
-    cost: CostAssessment;
-    security: SecurityAssessment;
-    reliability: ReliabilityAssessment;
-    performance: PerformanceAssessment;
+  /** Per-service checklist items (kept for reference, may be empty in AI mode) */
+  serviceChecklists: ServiceChecklist[];
+  /** Cross-cutting checklist items */
+  crossCuttingItems: ChecklistItem[];
+  /** Topology-level findings (custom rules, always run) */
+  topologyFindings: AssessmentFinding[];
+  /** AI-generated findings (architecture-specific) */
+  aiFindings: AssessmentFinding[];
+  /** Summary statistics */
+  summary: {
+    totalItems: number;
+    byPillar: Record<string, number>;
+    bySeverity: Record<string, number>;
+    servicesAssessed: string[];
   };
-  overallScore: number;        // 1-5
-  assessedAt: string;
 }
 
-export interface CostAssessment {
+// ─── Legacy types kept for backward compat ───
+
+export interface SecurityAssessment {
+  findings: AssessmentFinding[];
   score: number;
-  totalMonthly: number;
-  currency: string;
-  breakdown: CostLineItem[];
-  recommendations: AssessmentFinding[];
 }
-
+export interface ReliabilityAssessment {
+  findings: AssessmentFinding[];
+  score: number;
+}
+export interface PerformanceAssessment {
+  findings: AssessmentFinding[];
+  score: number;
+}
+export interface CostAssessment {
+  findings: AssessmentFinding[];
+  score: number;
+}
 export interface CostLineItem {
   resourceName: string;
   resourceType: string;
   sku: string;
   region: string;
   monthlyEstimate: number;
-  category: 'compute' | 'networking' | 'storage' | 'databases' | 'security' | 'monitoring' | 'other';
+  category: string;
 }
-
-export interface SecurityAssessment {
-  score: number;
-  findings: AssessmentFinding[];
-}
-
-export interface ReliabilityAssessment {
-  score: number;
-  compositeSla: number;
-  slaChain: SlaChainEntry[];
-  findings: AssessmentFinding[];
-  singlePointsOfFailure: string[];
-}
-
 export interface SlaChainEntry {
   resourceName: string;
   serviceSla: number;
   sku: string;
   isRedundant: boolean;
-}
-
-export interface PerformanceAssessment {
-  score: number;
-  findings: AssessmentFinding[];
-}
-
-export interface AssessmentFinding {
-  id: string;
-  severity: 'critical' | 'warning' | 'info';
-  pillar: 'cost' | 'security' | 'reliability' | 'performance';
-  title: string;
-  description: string;
-  impact: string;
-  remediation: string;
-  autoFixPrompt?: string;
 }

@@ -9,15 +9,17 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
-        // Disable buffering for SSE streaming endpoint
+        // Disable buffering for SSE streaming endpoints
         configure: (proxy) => {
+          const sseEndpoints = ['/stream', '/api/assess', '/api/estimate'];
+          const isSSE = (url?: string) => url && sseEndpoints.some(ep => url.includes(ep));
           proxy.on('proxyReq', (proxyReq, req) => {
-            if (req.url?.includes('/stream')) {
+            if (isSSE(req.url)) {
               proxyReq.setHeader('Accept', 'text/event-stream');
             }
           });
           proxy.on('proxyRes', (proxyRes, req) => {
-            if (req.url?.includes('/stream')) {
+            if (isSSE(req.url)) {
               proxyRes.headers['cache-control'] = 'no-cache';
               proxyRes.headers['x-accel-buffering'] = 'no';
             }

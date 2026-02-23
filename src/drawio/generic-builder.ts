@@ -103,10 +103,8 @@ export class GenericDiagramBuilder {
     let titleOffset = 0;
     if (arch.title) {
       const titleId = this.nextId();
-      const descLen = arch.description?.length || 0;
-      const descLines = descLen > 0 ? Math.ceil(descLen / 100) : 0;
-      const titleHeight = descLines > 0 ? Math.max(60, 30 + descLines * 18) : 30;
-      const titleText = `<b style="font-size:16px">${arch.title}</b>${arch.description ? '<br><span style="font-size:12px;color:#666666">' + arch.description + '</span>' : ''}`;
+      const titleHeight = 30;
+      const titleText = `<b style="font-size:16px">${arch.title}</b>`;
       root.ele('mxCell', {
         id: titleId,
         value: titleText,

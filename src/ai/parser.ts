@@ -90,13 +90,16 @@ Output ONLY valid JSON with this structure:
   "resources": [
     { "type": "hubVnet", "name": "vnet-hub-weu", "region": "West Europe", "subscription": "Hub Subscription", "properties": { "addressSpace": "10.0.0.0/16" } },
     { "type": "firewall", "name": "fw-hub-weu", "containedIn": "AzureFirewallSubnet", "region": "West Europe" },
+    { "type": "vpnGateway", "name": "ergw-hub-weu", "containedIn": "GatewaySubnet", "region": "West Europe", "properties": { "sku": "ErGw1AZ", "gatewayType": "ExpressRoute" } },
     { "type": "expressRoute", "name": "er-primary", "region": "West Europe", "properties": { "bandwidth": "1 Gbps" } },
     { "type": "vnet", "name": "vnet-spoke-prod", "region": "West Europe", "properties": { "addressSpace": "10.1.0.0/16" } },
+    { "type": "nsg", "name": "nsg-web-weu", "region": "West Europe" },
     { "type": "vm", "name": "vm-web", "count": 3, "containedIn": "subnet-web", "region": "West Europe", "properties": { "vmSize": "Standard_D4s_v5" } },
     { "type": "fabric", "name": "fabric-analytics", "region": "West Europe", "subscription": "Data Platform Subscription" }
   ],
   "connections": [
-    { "from": "er-primary", "to": "On-Premises", "style": "expressroute", "label": "ExpressRoute" },
+    { "from": "er-primary", "to": "ergw-hub-weu", "style": "expressroute", "label": "ExpressRoute" },
+    { "from": "er-primary", "to": "On-Premises", "style": "expressroute", "label": "On-Prem Link" },
     { "from": "vnet-hub-weu", "to": "vnet-spoke-prod", "style": "peering" }
   ]
 }
@@ -189,7 +192,10 @@ Subnet sizing requirements:
 
 Network security requirements:
 - NEVER attach an NSG to GatewaySubnet (breaks VPN/ExpressRoute)
-- Every subnet containing VMs SHOULD have an NSG with appropriate rules
+- NEVER attach an NSG to AzureFirewallSubnet
+- Every subnet containing VMs or other compute (AKS, VMSS, App Service) MUST have an NSG
+- NSGs MUST be associated to subnets using the "nsg" field on the subnet resource, e.g.: { "type": "subnet", "name": "subnet-web", "addressPrefix": "10.1.0.0/24", "nsg": "nsg-web-weu" }
+- Also create the NSG as a separate resource: { "type": "nsg", "name": "nsg-web-weu", "region": "West Europe" }
 - Hub VNets with spokes MUST contain a Firewall or NVA for traffic inspection
 - Spoke VNets MUST have a VNet peering connection to the hub VNet
 - Spokes should NOT peer directly to each other — route through hub
@@ -206,6 +212,7 @@ Service placement requirements:
 - Load Balancers and Application Gateways MUST have backend pool targets with connections to them
 - Architecture SHOULD include monitoring (Log Analytics workspace + Application Insights)
 - VMs SHOULD have a Recovery Services Vault for backup
+- ExpressRoute circuits MUST have a connection to a Virtual Network Gateway (type "vpnGateway" with properties.gatewayType: "ExpressRoute") in the hub VNet's GatewaySubnet. Always create this connection: { "from": "er-circuit-name", "to": "gateway-name", "style": "expressroute" }
 
 VNet requirements:
 - VNets MUST have a valid addressSpace (e.g., "10.0.0.0/16")
@@ -528,6 +535,40 @@ function buildResourceGroups(response: ParsedResponse, region?: string): Resourc
       }
     } else {
       rgLevelResources.push(resource);
+    }
+  }
+
+  // Auto-link NSGs to subnets by naming convention or explicit nsg field
+  // e.g., "nsg-web-weu" matches "subnet-web" or "snet-web"
+  const nsgResources = rgLevelResources.filter(r => r.type === 'nsg');
+  for (const vnet of vnets) {
+    if (!vnet.subnets) continue;
+    for (const subnet of vnet.subnets) {
+      // Skip system subnets that must NOT have NSGs
+      if (['GatewaySubnet', 'AzureFirewallSubnet'].includes(subnet.name)) continue;
+      // Skip if already has an NSG reference
+      if (subnet.nsg) continue;
+      // Skip if an NSG is already placed inside the subnet as a resource
+      if (subnet.resources?.some(r => r.type === 'nsg')) continue;
+
+      // Try to match by name: extract the subnet's "purpose" part
+      // e.g., "subnet-web" → "web", "snet-app" → "app", "AzureBastionSubnet" → "bastion"
+      const subnetPurpose = subnet.name
+        .replace(/^(subnet|snet)-?/i, '')
+        .replace(/subnet$/i, '')
+        .toLowerCase();
+
+      if (!subnetPurpose) continue;
+
+      // Find an NSG whose name contains this purpose
+      const matchingNsg = nsgResources.find(nsg => {
+        const nsgLower = nsg.name.toLowerCase();
+        return nsgLower.includes(subnetPurpose);
+      });
+
+      if (matchingNsg) {
+        subnet.nsg = matchingNsg.name;
+      }
     }
   }
 

@@ -740,6 +740,14 @@ body {
   background: var(--color-surface);
 }
 
+.diagram-viewer.resizing {
+  user-select: none;
+  cursor: ns-resize;
+}
+.diagram-viewer.resizing iframe {
+  pointer-events: none;
+}
+
 .diagram-viewer.empty {
   align-items: center;
   justify-content: center;
@@ -2865,612 +2873,987 @@ body {
 }
 
 /* ==========================================================
-   WAF Assessment — Styles
+   WAF Assessment — Checklist-Based Styles
    ========================================================== */
 
-/* --- Assessment Button/Dropdown --- */
-.assessment-dropdown {
-  position: relative;
-  display: inline-flex;
-}
-
+/* --- Assessment Button --- */
 .assessment-trigger {
   display: inline-flex;
   align-items: center;
   gap: 5px;
 }
 
-.assessment-dropdown-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  min-width: 220px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-lg);
-  z-index: 50;
-  animation: export-dropdown-in 0.15s ease-out;
-}
 
-.assessment-dropdown-header {
-  padding: 10px 14px 6px;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--color-text-tertiary);
-}
+/* ==================== Assessment Panel ==================== */
 
-.assessment-dropdown-pillars {
-  padding: 4px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
+/* ── Resizable bottom panels ── */
 
-.assessment-pillar-option {
+.resize-handle {
+  height: 8px;
+  cursor: ns-resize;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 4px;
-  font-size: 13px;
-  color: var(--color-text);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: background 0.12s;
-}
-
-.assessment-pillar-option:hover {
-  background: var(--color-primary-light);
-}
-
-.assessment-pillar-option input[type="checkbox"] {
-  accent-color: var(--color-primary);
-  width: 14px;
-  height: 14px;
-}
-
-.assessment-dropdown-actions {
-  display: flex;
-  gap: 6px;
-  padding: 8px 14px 10px;
+  justify-content: center;
+  background: var(--color-border);
   border-top: 1px solid var(--color-border);
-  margin-top: 4px;
+  user-select: none;
+  touch-action: none;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.resize-handle:hover, .resize-handle-active {
+  background: var(--color-primary);
 }
 
-/* --- Assessment Panel (bottom panel) --- */
-.assessment-panel {
-  border-top: 2px solid var(--color-primary);
-  background: var(--color-surface);
+.resize-handle-grip {
+  width: 40px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(128, 128, 128, 0.5);
+}
+.resize-handle:hover .resize-handle-grip,
+.resize-handle-active .resize-handle-grip {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.bottom-panels {
   display: flex;
   flex-direction: column;
-  max-height: 400px;
-  min-height: 200px;
-  animation: assessment-slide-up 0.25s ease-out;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
-@keyframes assessment-slide-up {
-  from {
-    max-height: 0;
-    opacity: 0;
-  }
-  to {
-    max-height: 400px;
-    opacity: 1;
-  }
+.assessment-panel {
+  border-top: none;
+  background: var(--color-bg);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .assessment-panel-header {
   display: flex;
   align-items: center;
-  padding: 8px 16px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--color-border);
-  background: var(--color-toolbar-bg);
-  flex-shrink: 0;
-  gap: 12px;
 }
 
 .assessment-panel-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
   font-weight: 600;
-  color: var(--color-text);
+  font-size: 15px;
+  flex: 1;
 }
 
-.assessment-panel-icon {
-  font-size: 16px;
-}
-
-.assessment-panel-scores {
-  display: flex;
-  gap: 12px;
-  margin-left: auto;
-}
+.assessment-panel-icon { font-size: 18px; }
 
 .assessment-panel-close {
   background: none;
   border: none;
-  font-size: 16px;
+  font-size: 18px;
   cursor: pointer;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-muted);
   padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  transition: all 0.15s;
-  flex-shrink: 0;
+  border-radius: 4px;
+  line-height: 1;
 }
+.assessment-panel-close:hover { background: var(--color-surface); color: var(--color-text); }
 
-.assessment-panel-close:hover {
-  background: var(--color-bg);
-  color: var(--color-text);
-}
+/* ── Tabs ── */
 
-/* --- Star Rating --- */
-.star-rating {
-  display: inline-flex;
-  gap: 1px;
-}
-
-.star-filled {
-  color: #f59e0b;
-}
-
-.star-empty {
-  color: var(--color-border);
-}
-
-/* --- Pillar Score --- */
-.pillar-score {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.pillar-score-label {
-  font-size: 14px;
-}
-
-/* --- Assessment Tabs --- */
 .assessment-tabs {
   display: flex;
   border-bottom: 1px solid var(--color-border);
-  background: var(--color-toolbar-bg);
-  flex-shrink: 0;
+  padding: 0 12px;
+  background: var(--color-surface);
 }
 
 .assessment-tab {
-  flex: 1;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  border-bottom: 2px solid transparent;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 8px 12px;
-  border: none;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: var(--font);
+  gap: 6px;
+  white-space: nowrap;
+  transition: color 0.15s;
 }
-
-.assessment-tab:hover {
-  color: var(--color-text);
-  background: rgba(0, 0, 0, 0.03);
-}
-
-[data-theme='dark'] .assessment-tab:hover {
-  background: rgba(255, 255, 255, 0.03);
-}
-
+.assessment-tab:hover { color: var(--color-text); }
 .assessment-tab-active {
   color: var(--color-primary);
   border-bottom-color: var(--color-primary);
-  font-weight: 600;
 }
 
 .assessment-tab-badge {
-  padding: 1px 6px;
-  background: var(--color-primary-light);
-  color: var(--color-primary);
-  border-radius: 10px;
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--color-border);
+  color: var(--color-text-muted);
+}
+.assessment-tab-active .assessment-tab-badge {
+  background: var(--color-primary);
+  color: white;
 }
 
-/* --- Tab Content --- */
+/* ── Scrollable content area ── */
+
 .assessment-tab-content {
-  flex: 1;
   overflow-y: auto;
-  padding: 12px 16px;
-}
-
-/* --- Cost Tab --- */
-.cost-summary {
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
   display: flex;
-  gap: 20px;
+  flex-direction: column;
+}
+.assessment-tab-content::-webkit-scrollbar { width: 6px; }
+.assessment-tab-content::-webkit-scrollbar-thumb { background: #c8c6c4; border-radius: 3px; }
+.assessment-tab-content::-webkit-scrollbar-thumb:hover { background: #a19f9d; }
+
+/* ── Summary header (overview tab) ── */
+
+.assess-summary {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 16px;
   margin-bottom: 16px;
-  align-items: flex-start;
 }
 
-.cost-total {
+.assess-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.assess-summary-total {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 16px 24px;
-  background: var(--color-bg);
-  border-radius: var(--radius);
-  border: 1px solid var(--color-border);
-  min-width: 160px;
-  flex-shrink: 0;
 }
 
-.cost-total-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  margin-bottom: 4px;
-}
-
-.cost-total-value {
+.assess-summary-num {
   font-size: 28px;
   font-weight: 700;
   color: var(--color-text);
-  line-height: 1.2;
+  line-height: 1;
 }
 
-.cost-total-annual {
+.assess-summary-label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.assess-summary-sevs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.assess-sev-pill {
   font-size: 12px;
-  color: var(--color-text-secondary);
-  margin-top: 2px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 12px;
+}
+.assess-sev-pill-high { background: #fee2e2; color: #991b1b; }
+.assess-sev-pill-med { background: #fef3c7; color: #92400e; }
+.assess-sev-pill-low { background: #dbeafe; color: #1e40af; }
+
+.assess-summary-pillars {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.cost-categories {
+.assess-summary-pillar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.assess-summary-pillar:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.assess-summary-pillar-active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+.assess-summary-pillar-active .assess-summary-pillar-name,
+.assess-summary-pillar-active .assess-summary-pillar-count {
+  color: white;
+}
+
+.assess-summary-pillar-name { color: var(--color-text-muted); }
+.assess-summary-pillar-count { font-weight: 700; color: var(--color-text); }
+
+/* ── Section titles ── */
+
+.assess-section { margin-bottom: 16px; }
+
+.assess-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 10px 0;
+}
+
+/* ── Severity dot ── */
+
+.assess-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.assess-dot-high { background: #ef4444; }
+.assess-dot-med { background: #f59e0b; }
+.assess-dot-low { background: #3b82f6; }
+
+/* ── Severity badge ── */
+
+.assess-sev {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.assess-sev-high { background: #fee2e2; color: #991b1b; }
+.assess-sev-med { background: #fef3c7; color: #92400e; }
+.assess-sev-low { background: #dbeafe; color: #1e40af; }
+
+/* ── Pillar tag ── */
+
+.assess-pillar-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+/* ── Severity bar (mini stacked bar chart) ── */
+
+.assess-sev-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  flex: 1;
+  max-width: 120px;
+  background: var(--color-border);
+}
+
+.assess-sev-bar-seg { height: 100%; }
+.assess-sev-bar-high { background: #ef4444; }
+.assess-sev-bar-med { background: #f59e0b; }
+.assess-sev-bar-low { background: #3b82f6; }
+
+/* ── Checklist item row ── */
+
+.assess-item {
+  padding: 8px 10px;
+  border-left: 3px solid var(--color-border);
+  margin-bottom: 4px;
+  background: var(--color-surface);
+  border-radius: 0 6px 6px 0;
+  transition: background 0.1s;
+}
+.assess-item:hover { background: var(--color-bg); }
+
+.assess-item-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.assess-item-text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-text);
+  flex: 1;
+}
+
+.assess-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding-left: 16px;
+}
+
+.assess-item-cat {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.assess-item-link {
+  font-size: 11px;
+  color: var(--color-primary);
+  text-decoration: none;
+  margin-left: auto;
+}
+.assess-item-link:hover { text-decoration: underline; }
+
+/* ── Topology / Architecture findings ── */
+
+.assess-finding {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: box-shadow 0.15s;
+}
+.assess-finding:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+
+.assess-finding-critical { border-left: 4px solid #ef4444; }
+.assess-finding-warning { border-left: 4px solid #f59e0b; }
+.assess-finding-info { border-left: 4px solid #3b82f6; }
+
+.assess-finding-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--color-surface);
+}
+
+.assess-finding-icon { font-size: 16px; flex-shrink: 0; }
+
+.assess-finding-info {
   flex: 1;
   display: flex;
   flex-direction: column;
+  gap: 4px;
+}
+
+.assess-finding-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.assess-finding-tags {
+  display: flex;
   gap: 6px;
 }
 
-.cost-category-bar {
+.assess-chevron {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+.assess-chevron-open { transform: rotate(180deg); }
+
+.assess-finding-body {
+  padding: 12px 14px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+
+.assess-finding-desc {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0 0 10px 0;
+  color: var(--color-text);
+}
+
+.assess-finding-detail {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.assess-finding-impact,
+.assess-finding-fix {
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.assess-finding-impact {
+  background: #fef3c7;
+}
+.assess-finding-fix {
+  background: #d1fae5;
+}
+.assess-finding-impact p,
+.assess-finding-fix p {
+  margin: 4px 0 0 0;
+  line-height: 1.4;
+}
+
+.assess-finding-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ── Service accordion ── */
+
+.assess-svc {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.assess-svc-open { box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+
+.assess-svc-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  position: relative;
+  gap: 10px;
+  padding: 10px 14px;
+  border: none;
+  background: var(--color-surface);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  font-size: 14px;
+  transition: background 0.1s;
+}
+.assess-svc-header:hover { background: var(--color-border); }
+
+.assess-svc-icon { font-size: 18px; }
+.assess-svc-name { font-weight: 600; color: var(--color-text); }
+
+.assess-svc-stats {
+  display: flex;
+  gap: 4px;
+  align-items: center;
 }
 
-.cost-category-label {
-  width: 120px;
-  color: var(--color-text-secondary);
-  flex-shrink: 0;
-  font-weight: 500;
+.assess-stat-high,
+.assess-stat-med,
+.assess-stat-low,
+.assess-stat-total {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+.assess-stat-high { background: #fee2e2; color: #991b1b; }
+.assess-stat-med { background: #fef3c7; color: #92400e; }
+.assess-stat-low { background: #dbeafe; color: #1e40af; }
+.assess-stat-total { background: var(--color-bg); color: var(--color-text-muted); }
+
+.assess-svc-body {
+  border-top: 1px solid var(--color-border);
 }
 
-.cost-category-amount {
-  width: 70px;
-  text-align: right;
-  color: var(--color-text);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
+/* ── Filters ── */
+
+.assess-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
 }
 
-.cost-category-fill {
-  height: 8px;
+.assess-filter-group {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.assess-filter-chip {
+  font-size: 11px;
+  padding: 3px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.1s;
+}
+.assess-filter-chip:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.assess-filter-chip.active {
   background: var(--color-primary);
-  border-radius: 4px;
-  opacity: 0.6;
-  flex: 1;
-  min-width: 4px;
+  color: white;
+  border-color: var(--color-primary);
+}
+.assess-filter-chip.active .assess-dot { background: white; }
+
+/* ── Items inside service accordion ── */
+
+.assess-svc-items {
+  padding: 10px 14px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.assess-svc-items::-webkit-scrollbar { width: 5px; }
+.assess-svc-items::-webkit-scrollbar-thumb { background: #c8c6c4; border-radius: 3px; }
+
+.assess-no-items {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  text-align: center;
+  padding: 16px 0;
 }
 
-/* --- Cost Table --- */
-.cost-breakdown {
-  margin-bottom: 16px;
-}
-
-.cost-breakdown h4,
-.cost-recommendations h4 {
-  font-size: 12px;
+.assess-cat-heading {
+  font-size: 11px;
   font-weight: 600;
+  color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--color-text-tertiary);
+  padding: 6px 0 4px;
+  margin-top: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+.assess-cat-group:first-child .assess-cat-heading { margin-top: 0; }
+
+/* ── Cross-cutting list ── */
+
+.assess-cc-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+.assess-cc-list::-webkit-scrollbar { width: 5px; }
+.assess-cc-list::-webkit-scrollbar-thumb { background: #c8c6c4; border-radius: 3px; }
+
+/* ── Service card grid (overview) ── */
+
+.assess-svc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.assess-svc-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.assess-svc-card:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.assess-svc-card-icon { font-size: 24px; }
+.assess-svc-card-name { font-size: 13px; font-weight: 600; color: var(--color-text); }
+.assess-svc-card-count { font-size: 12px; color: var(--color-text-muted); }
+.assess-high-inline { color: #991b1b; font-weight: 600; }
+
+/* ── Empty states ── */
+
+.assess-empty-nice {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--color-text-muted);
+}
+.assess-empty-nice > span { font-size: 36px; display: block; margin-bottom: 8px; }
+.assess-empty-nice > p { margin: 0; font-size: 14px; }
+.assess-empty-sub { font-size: 12px; margin-top: 6px !important; }
+
+.assess-intro {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin: 0 0 12px 0;
+}
+.assess-intro a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+.assess-intro a:hover { text-decoration: underline; }
+
+/* ── Tab-inline pillar filters ── */
+
+.assess-tab-filters {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-left: auto;
+  padding: 4px 0;
+}
+
+/* ── Assessed-services footer ── */
+
+.assess-assessed-services {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 12px 0 4px;
+  margin-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.assess-assessed-label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.assess-assessed-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+/* ==================== Cost & SLA Panel ==================== */
+
+.cost-sla-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cost-total-badge {
+  font-size: 14px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 10px;
+  background: #dcfce7;
+  color: #166534;
+}
+
+.sla-badge {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 10px;
+  background: var(--color-surface);
+}
+
+.cost-region-badge {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: var(--color-surface);
+  margin-left: auto;
+}
+
+/* ── Cost breakdown bar ── */
+
+.cost-breakdown { margin-bottom: 16px; flex-shrink: 0; }
+
+.cost-tab, .sla-tab, .cost-rec-tab {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.cost-breakdown-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  gap: 1px;
   margin-bottom: 8px;
 }
+
+.cost-breakdown-seg {
+  height: 100%;
+  min-width: 4px;
+  transition: opacity 0.15s;
+}
+.cost-breakdown-seg:hover { opacity: 0.8; }
+
+.cost-breakdown-legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cost-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.cost-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Cost table ── */
+
+.cost-table-wrap {
+  overflow-x: auto;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.cost-table-wrap::-webkit-scrollbar { width: 5px; height: 5px; }
+.cost-table-wrap::-webkit-scrollbar-thumb { background: #c8c6c4; border-radius: 3px; }
 
 .cost-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .cost-table th {
   text-align: left;
-  padding: 6px 8px;
-  border-bottom: 2px solid var(--color-border);
-  font-weight: 600;
-  color: var(--color-text-secondary);
   font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.5px;
+  color: var(--color-text-muted);
+  padding: 6px 10px;
+  border-bottom: 2px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  background: var(--color-bg);
 }
 
 .cost-table td {
-  padding: 5px 8px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+
+.cost-table tbody tr:hover { background: var(--color-surface); }
+
+.cost-table-right { text-align: right; }
+
+.cost-resource-name {
+  display: block;
+  font-weight: 600;
   color: var(--color-text);
 }
 
-.cost-table-right {
-  text-align: right !important;
-}
-
-.cost-table-name {
-  font-weight: 500;
-}
-
-.cost-table-type {
-  color: var(--color-text-secondary);
-}
-
-.cost-table-sku {
-  color: var(--color-text-tertiary);
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
+.cost-resource-service {
+  display: block;
   font-size: 11px;
+  color: var(--color-text-muted);
 }
 
-.cost-table-amount {
+.cost-sku {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.cost-assumptions {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  max-width: 200px;
+}
+
+.cost-amount {
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
+  font-family: monospace;
+  white-space: nowrap;
 }
 
 .cost-table tfoot td {
   border-top: 2px solid var(--color-border);
   border-bottom: none;
-  padding-top: 8px;
+  padding-top: 10px;
 }
 
-/* --- Finding Cards (Assessment) --- */
-.finding-critical {
-  border-left: 3px solid #dc2626;
+.cost-total {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-primary);
 }
 
-.finding-severity {
-  font-size: 14px;
-  flex-shrink: 0;
+/* ── SLA path cards ── */
+
+.sla-path-card {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
 }
 
-.finding-details {
+.sla-path-header {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: none;
+  background: var(--color-surface);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
 }
+.sla-path-header:hover { background: var(--color-border); }
 
-.finding-detail {
-  font-size: 11px;
-  color: var(--color-text-secondary);
-  line-height: 1.5;
-}
+.sla-path-info { flex: 1; }
 
-.finding-detail strong {
+.sla-path-name {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--color-text);
 }
 
-/* --- Findings Summary Bar --- */
-.findings-summary {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
+.sla-path-desc {
+  display: block;
+  font-size: 12px;
+  color: var(--color-text-muted);
 }
 
-.findings-summary-item {
+.sla-composite {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: monospace;
+}
+
+.sla-path-body {
+  padding: 14px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* ── SLA chain visualization ── */
+
+.sla-chain {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.sla-chain-entry {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sla-chain-arrow {
+  font-size: 16px;
+  color: var(--color-text-muted);
+  margin: 0 2px;
+}
+
+.sla-chain-node {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  flex: 1;
-  padding: 10px;
-  background: var(--color-bg);
-  border-radius: var(--radius);
+  padding: 8px 12px;
   border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  min-width: 80px;
 }
 
-.findings-count {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--color-text);
-}
-
-.findings-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-}
-
-.findings-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 24px;
-  color: var(--color-success);
-  font-size: 32px;
-}
-
-.findings-empty p {
-  font-size: 14px;
-  color: var(--color-text-secondary);
-}
-
-.findings-group {
-  margin-bottom: 12px;
-}
-
-.findings-group h4 {
+.sla-chain-name {
   font-size: 12px;
   font-weight: 600;
-  margin-bottom: 8px;
   color: var(--color-text);
+  text-align: center;
 }
 
-.findings-list {
-  display: flex;
-  flex-direction: column;
-}
-
-/* --- Reliability Tab --- */
-.sla-summary {
-  margin-bottom: 16px;
-}
-
-.sla-composite {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 16px 24px;
-  background: var(--color-bg);
-  border-radius: var(--radius);
-  border: 1px solid var(--color-border);
-}
-
-.sla-composite-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  margin-bottom: 4px;
-}
-
-.sla-composite-value {
-  font-size: 32px;
+.sla-chain-sla {
+  font-size: 14px;
   font-weight: 700;
-  color: var(--color-text);
-  font-variant-numeric: tabular-nums;
+  font-family: monospace;
 }
 
-.sla-bar {
-  width: 100%;
-  height: 8px;
-  background: var(--color-border);
-  border-radius: 4px;
-  margin: 8px 0 4px;
-  overflow: hidden;
+.sla-chain-note {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  text-align: center;
 }
 
-.sla-bar-fill {
-  height: 100%;
-  border-radius: 4px;
-  transition: width 0.5s ease;
+.sla-calculation {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  padding: 8px 12px;
+  background: var(--color-surface);
+  border-radius: 6px;
+  font-family: monospace;
 }
 
 .sla-downtime {
+  display: inline-block;
+  margin-left: 12px;
+  font-family: inherit;
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 
-/* --- SPOF Section --- */
-.spof-section {
-  margin-bottom: 16px;
-}
+/* ── Cost recommendations ── */
 
-.spof-section h4 {
-  font-size: 12px;
-  font-weight: 600;
+.cost-rec-card {
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid #f59e0b;
+  border-radius: 0 8px 8px 0;
   margin-bottom: 8px;
+  background: var(--color-surface);
+}
+
+.cost-rec-title {
+  font-size: 14px;
+  font-weight: 600;
   color: var(--color-text);
+  margin-bottom: 4px;
 }
 
-.spof-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+.cost-rec-desc {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin: 0 0 6px 0;
+  line-height: 1.4;
 }
 
-.spof-item {
-  padding: 3px 10px;
-  background: var(--color-error-bg);
-  color: var(--color-error);
-  border-radius: 10px;
-  font-size: 11px;
+.cost-rec-impact {
+  font-size: 13px;
+  color: #166534;
   font-weight: 600;
+  margin: 0 0 4px 0;
 }
 
-/* --- SLA Chain Table --- */
-.sla-chain-section {
-  margin-bottom: 16px;
-}
-
-.sla-chain-section h4 {
+.cost-rec-fix {
   font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--color-text-tertiary);
-  margin-bottom: 8px;
-}
-
-.sla-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-
-.sla-table th {
-  text-align: left;
-  padding: 6px 8px;
-  border-bottom: 2px solid var(--color-border);
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-}
-
-.sla-table td {
-  padding: 5px 8px;
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-text);
-}
-
-.sla-table-right {
-  text-align: right !important;
-}
-
-.sla-table-sku {
-  color: var(--color-text-tertiary);
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
-  font-size: 11px;
-}
-
-.sla-row-single {
-  background: rgba(244, 67, 54, 0.05);
-}
-
-[data-theme='dark'] .sla-row-single {
-  background: rgba(244, 67, 54, 0.1);
-}
-
-/* --- Assessment scrollbar --- */
-.assessment-tab-content::-webkit-scrollbar {
-  width: 6px;
-}
-
-.assessment-tab-content::-webkit-scrollbar-thumb {
-  background: #c8c6c4;
-  border-radius: 3px;
-}
-
-.assessment-tab-content::-webkit-scrollbar-thumb:hover {
-  background: #a19f9d;
+  color: var(--color-primary);
+  margin: 0;
 }
 
 /* ==================== IaC Export Modal ==================== */
@@ -3586,6 +3969,29 @@ body {
   font-weight: 600;
   color: var(--color-text);
   margin-bottom: 8px;
+}
+
+.iac-description-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 60px;
+  transition: border-color 0.15s;
+}
+
+.iac-description-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.iac-description-input::placeholder {
+  color: var(--color-text-muted);
 }
 
 /* --- Format Toggle --- */

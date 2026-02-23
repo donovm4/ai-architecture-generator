@@ -4,15 +4,14 @@ import { ConfigPanel } from './components/ConfigPanel';
 import { GeneratePanel } from './components/GeneratePanel';
 import { DiagramViewer } from './components/DiagramViewer';
 import { HistoryPanel } from './components/HistoryPanel';
-import { ValidationToggle } from './components/ValidationToggle';
-import { ValidationPanel } from './components/ValidationPanel';
-import { ValidationSummaryBar } from './components/ValidationSummaryBar';
 import { ImportModal } from './components/ImportModal';
 import { ImportAnalysis } from './components/ImportAnalysis';
 import { getAuthStatus } from './services/azureDiscovery';
 import { saveToHistory } from './services/historyService';
-import type { AuthStatus, GenerateResponse, ValidationResult } from './types';
+import type { AuthStatus, GenerateResponse } from './types';
 import type { AssessmentResult } from './components/AssessmentPanel';
+import { CostSlaPanel } from './components/CostSlaPanel';
+import type { CostSlaResult } from './components/CostSlaPanel';
 
 function WelcomeBanner({ auth }: { auth: AuthStatus | null }) {
   if (auth?.authenticated) return null;
@@ -52,12 +51,10 @@ export default function App() {
   const [result, setResult] = useState<GenerateResponse | null>(null);
   const [error, setError] = useState('');
   const [diagramMode, setDiagramMode] = useState<'azure' | 'generic'>('azure');
-  const [validationEnabled, setValidationEnabled] = useState(false);
-  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
-  const [validationPanelExpanded, setValidationPanelExpanded] = useState(false);
-  const [isValidating, setIsValidating] = useState(false);
   const [assessmentResult, setAssessmentResult] = useState<AssessmentResult | null>(null);
   const [isAssessing, setIsAssessing] = useState(false);
+  const [costResult, setCostResult] = useState<CostSlaResult | null>(null);
+  const [isEstimating, setIsEstimating] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const saved = localStorage.getItem('theme');
     if (saved === 'dark' || saved === 'light') return saved;
@@ -94,66 +91,137 @@ export default function App() {
     []
   );
 
-  // Run validation against the current architecture
-  const runValidation = useCallback(async (architecture: any) => {
-    if (!architecture) return;
-    setIsValidating(true);
-    try {
-      const res = await fetch('/api/validate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ architecture }),
-      });
-      if (res.ok) {
-        const result: ValidationResult = await res.json();
-        setValidationResult(result);
-        // Auto-expand if there are errors
-        if (result.summary.errors > 0) {
-          setValidationPanelExpanded(true);
-        }
-      }
-    } catch {
-      // Silently fail — validation is optional
-    } finally {
-      setIsValidating(false);
-    }
-  }, []);
-
-  // Run WAF assessment
-  const runAssessment = useCallback(async (pillars: string[]) => {
-    if (!result?.architecture) return;
+  // Run WAF assessment (SSE streaming)
+  const runAssessment = useCallback(async () => {
+    if (!result?.architecture || !config) return;
     setIsAssessing(true);
+    setAssessmentResult(null);
     try {
       const res = await fetch('/api/assess', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           architecture: result.architecture,
-          pillars,
+          endpoint: config.endpoint,
+          deploymentName: config.deploymentName,
         }),
       });
-      if (res.ok) {
-        const assessment: AssessmentResult = await res.json();
-        setAssessmentResult(assessment);
+
+      // Check if it's SSE or plain JSON
+      const contentType = res.headers.get('Content-Type') || '';
+      if (contentType.includes('text/event-stream')) {
+        // SSE streaming mode
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        if (!reader) {
+          setError('Cannot read assessment stream');
+          setIsAssessing(false);
+          return;
+        }
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          // Parse SSE events
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          let eventType = '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              eventType = line.slice(7).trim();
+            } else if (line.startsWith('data: ') && eventType) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (eventType === 'result') {
+                  setAssessmentResult(data);
+                } else if (eventType === 'error') {
+                  setError(data.error || 'Assessment failed');
+                }
+              } catch { /* ignore parse errors in stream */ }
+              eventType = '';
+            }
+          }
+        }
       } else {
-        const err = await res.json();
-        setError(err.error || 'Assessment failed');
+        // Plain JSON fallback (no AI credentials)
+        if (res.ok) {
+          const assessment: AssessmentResult = await res.json();
+          setAssessmentResult(assessment);
+        } else {
+          const err = await res.json();
+          setError(err.error || 'Assessment failed');
+        }
       }
     } catch {
       setError('Failed to connect to assessment API');
     } finally {
       setIsAssessing(false);
     }
-  }, [result]);
+  }, [result, config]);
 
-  // Handle auto-fix from validation panel
-  const handleAutoFix = useCallback((prompt: string) => {
-    // We need to trigger the GeneratePanel with this prompt
-    // Set it as a pending auto-fix prompt via state
-    setAutoFixPrompt(prompt);
-  }, []);
+  // Run cost & SLA estimation (SSE streaming)
+  const runEstimate = useCallback(async () => {
+    if (!result?.architecture || !config) return;
+    setIsEstimating(true);
+    setCostResult(null);
+    try {
+      const res = await fetch('/api/estimate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          architecture: result.architecture,
+          endpoint: config.endpoint,
+          deploymentName: config.deploymentName,
+        }),
+      });
 
-  const [autoFixPrompt, setAutoFixPrompt] = useState<string | null>(null);
+      const contentType = res.headers.get('Content-Type') || '';
+      if (contentType.includes('text/event-stream')) {
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        if (!reader) { setError('Cannot read estimate stream'); setIsEstimating(false); return; }
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          let eventType = '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              eventType = line.slice(7).trim();
+            } else if (line.startsWith('data: ') && eventType) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (eventType === 'result') setCostResult(data);
+                else if (eventType === 'error') setError(data.error || 'Estimation failed');
+              } catch { /* ignore */ }
+              eventType = '';
+            }
+          }
+        }
+      } else if (res.ok) {
+        setCostResult(await res.json());
+      } else {
+        const err = await res.json();
+        setError(err.error || 'Estimation failed');
+      }
+    } catch {
+      setError('Failed to connect to estimation API');
+    } finally {
+      setIsEstimating(false);
+    }
+  }, [result, config]);
 
   // Import state
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -163,11 +231,6 @@ export default function App() {
     xml: string;
     architecture: any;
   } | null>(null);
-
-  const handleHighlightResource = useCallback((_resourceName: string) => {
-    // Future: could highlight in diagram viewer
-    // For now, just scroll to validation panel showing the resource
-  }, []);
 
   const handleImportResult = useCallback((importResult: any) => {
     // Check if there are unrecognized shapes that need analysis
@@ -208,8 +271,6 @@ export default function App() {
     // we need to regenerate from our model. Use the original XML for display.
     setResult(genResult);
     setError('');
-    setValidationResult(null);
-    setValidationPanelExpanded(false);
 
     // Save to history
     saveToHistory({
@@ -220,14 +281,9 @@ export default function App() {
       modelInfo: 'Import',
     });
 
-    // Run validation if enabled
-    if (validationEnabled && diagramMode === 'azure' && importResult.architecture) {
-      runValidation(importResult.architecture);
-    }
-
     setImportAnalysisOpen(false);
     setImportData(null);
-  }, [validationEnabled, diagramMode, runValidation]);
+  }, []);
 
   return (
     <div className="app">
@@ -278,27 +334,15 @@ export default function App() {
             </p>
           </div>
 
-          {/* Azure Validation Toggle */}
-          <ValidationToggle
-            enabled={validationEnabled}
-            onToggle={setValidationEnabled}
-            diagramMode={diagramMode}
-          />
-
           <GeneratePanel
             auth={auth}
             config={config}
             previousResult={result}
             diagramMode={diagramMode}
-            validationEnabled={validationEnabled}
-            isValidating={isValidating}
-            autoFixPrompt={autoFixPrompt}
-            onAutoFixConsumed={() => setAutoFixPrompt(null)}
             onGenerated={(res, prompt, title) => {
               setResult(res);
-              setValidationResult(null);
-              setValidationPanelExpanded(false);
               setAssessmentResult(null);
+              setCostResult(null);
               saveToHistory({
                 prompt,
                 title: title || res.architecture?.title || 'Untitled',
@@ -306,10 +350,6 @@ export default function App() {
                 parsed: res.parsed,
                 modelInfo: config?.modelInfo || '',
               });
-              // Run validation if enabled and in Azure mode
-              if (validationEnabled && diagramMode === 'azure' && res.architecture) {
-                runValidation(res.architecture);
-              }
             }}
             onError={setError}
           />
@@ -327,32 +367,21 @@ export default function App() {
           )}
         </div>
 
-        <div className={`content ${validationPanelExpanded && validationResult ? 'content-with-validation' : ''}`}>
+        <div className="content">
           <div className="content-diagram">
-            <ValidationSummaryBar
-              result={validationResult}
-              isExpanded={validationPanelExpanded}
-              onToggle={() => setValidationPanelExpanded(prev => !prev)}
-            />
             <DiagramViewer
               result={result}
               assessment={assessmentResult}
               isAssessing={isAssessing}
               onAssess={runAssessment}
               onCloseAssessment={() => setAssessmentResult(null)}
+              costResult={costResult}
+              isEstimating={isEstimating}
+              onEstimate={runEstimate}
+              onCloseCost={() => setCostResult(null)}
               diagramMode={diagramMode}
             />
           </div>
-          {validationPanelExpanded && validationResult && (
-            <div className="content-validation">
-              <ValidationPanel
-                result={validationResult}
-                onAutoFix={handleAutoFix}
-                onHighlightResource={handleHighlightResource}
-                onClose={() => setValidationPanelExpanded(false)}
-              />
-            </div>
-          )}
         </div>
       </main>
 

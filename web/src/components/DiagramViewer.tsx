@@ -7,17 +7,23 @@ import { jsPDF } from 'jspdf';
 import { AssessmentButton } from './AssessmentButton';
 import { AssessmentPanel } from './AssessmentPanel';
 import type { AssessmentResult } from './AssessmentPanel';
+import { CostSlaPanel } from './CostSlaPanel';
+import type { CostSlaResult } from './CostSlaPanel';
 
 interface DiagramViewerProps {
   result: GenerateResponse | null;
   assessment?: AssessmentResult | null;
   isAssessing?: boolean;
-  onAssess?: (pillars: string[]) => void;
+  onAssess?: () => void;
   onCloseAssessment?: () => void;
+  costResult?: CostSlaResult | null;
+  isEstimating?: boolean;
+  onEstimate?: () => void;
+  onCloseCost?: () => void;
   diagramMode?: 'azure' | 'generic';
 }
 
-export function DiagramViewer({ result, assessment, isAssessing, onAssess, onCloseAssessment, diagramMode }: DiagramViewerProps) {
+export function DiagramViewer({ result, assessment, isAssessing, onAssess, onCloseAssessment, costResult, isEstimating, onEstimate, onCloseCost, diagramMode }: DiagramViewerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [showXml, setShowXml] = useState(false);
@@ -27,6 +33,44 @@ export function DiagramViewer({ result, assessment, isAssessing, onAssess, onClo
   const [loadingTime, setLoadingTime] = useState(0);
   const [iacModalOpen, setIacModalOpen] = useState(false);
   const [iacModalFormat, setIacModalFormat] = useState<'bicep' | 'terraform'>('bicep');
+
+  // Resizable bottom panel
+  const [bottomHeight, setBottomHeight] = useState(300);
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartY = useRef(0);
+  const resizeStartHeight = useRef(0);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    resizeStartY.current = clientY;
+    resizeStartHeight.current = bottomHeight;
+    setIsResizing(true);
+  }, [bottomHeight]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMove = (e: MouseEvent | TouchEvent) => {
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+      const delta = resizeStartY.current - clientY;
+      const newHeight = Math.max(100, Math.min(window.innerHeight * 0.8, resizeStartHeight.current + delta));
+      setBottomHeight(newHeight);
+    };
+
+    const handleEnd = () => setIsResizing(false);
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleEnd);
+    window.addEventListener('touchmove', handleMove);
+    window.addEventListener('touchend', handleEnd);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleEnd);
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('touchend', handleEnd);
+    };
+  }, [isResizing]);
   // Track whether the iframe has finished its initial 'init' handshake
   const iframeReady = useRef(false);
   // Store the pending XML so the message handler always has the latest
@@ -323,7 +367,7 @@ export function DiagramViewer({ result, assessment, isAssessing, onAssess, onClo
   }
 
   return (
-    <div className="diagram-viewer">
+    <div className={`diagram-viewer${isResizing ? ' resizing' : ''}`}>
       <div className="viewer-toolbar">
         <div className="resource-summary">
           <span className="badge">
@@ -345,19 +389,35 @@ export function DiagramViewer({ result, assessment, isAssessing, onAssess, onClo
             hasArchitecture={!!result?.architecture}
             isAzureMode={diagramMode !== 'generic'}
           />
-          <button
-            className="btn btn-toolbar"
-            onClick={() => setShowXml(!showXml)}
-          >
-            {showXml ? 'Diagram' : 'XML'}
-          </button>
-          <button className="btn btn-toolbar" onClick={handleCopyXml}>
-            {copied ? '✓ Copied' : 'Copy XML'}
-          </button>
+          {diagramMode !== 'generic' && (
+            <button
+              className="btn btn-toolbar cost-trigger"
+              onClick={onEstimate}
+              disabled={!result?.architecture || isEstimating}
+              title={!result?.architecture ? 'Generate an architecture first' : 'Estimate monthly costs and composite SLA'}
+            >
+              {isEstimating ? (
+                <>
+                  <span className="spinner" />
+                  Estimating…
+                </>
+              ) : (
+                '💰 Cost & SLA'
+              )}
+            </button>
+          )}
           <ExportDropdown
             isLoaded={isLoaded}
             exporting={exporting}
-            onExport={handleExport}
+            onExport={(format, options) => {
+              if (format === 'viewxml') {
+                setShowXml(!showXml);
+              } else if (format === 'copyxml') {
+                handleCopyXml();
+              } else {
+                handleExport(format, options);
+              }
+            }}
             hasJson={!!result?.parsed}
           />
         </div>
@@ -449,28 +509,28 @@ export function DiagramViewer({ result, assessment, isAssessing, onAssess, onClo
         </div>
       )}
 
-      <div className="resource-list">
-        <h4>Resources</h4>
-        <div className="resource-grid">
-          {(() => {
-            const resources = result.parsed?.resources
-              ?? result.parsed?.pages?.flatMap(p => p.resources ?? [])
-              ?? [];
-            return resources.map((r, i) => (
-              <div key={i} className="resource-item">
-                <span className="resource-type">{r.type}</span>
-                <span className="resource-name">{r.name}</span>
-                {r.count && r.count > 1 && (
-                  <span className="resource-count">×{r.count}</span>
-                )}
-              </div>
-            ));
-          })()}
-        </div>
-      </div>
-
-      {assessment && onCloseAssessment && (
-        <AssessmentPanel assessment={assessment} onClose={onCloseAssessment} />
+      {(assessment || costResult) && (
+        <>
+          <div
+            className={`resize-handle ${isResizing ? 'resize-handle-active' : ''}`}
+            onMouseDown={handleResizeStart}
+            onTouchStart={handleResizeStart}
+            title="Drag to resize"
+          >
+            <div className="resize-handle-grip" />
+          </div>
+          <div
+            className="bottom-panels"
+            style={{ height: bottomHeight }}
+          >
+            {assessment && onCloseAssessment && (
+              <AssessmentPanel assessment={assessment} onClose={onCloseAssessment} />
+            )}
+            {costResult && onCloseCost && (
+              <CostSlaPanel result={costResult} onClose={onCloseCost} />
+            )}
+          </div>
+        </>
       )}
 
       <IaCExportModal

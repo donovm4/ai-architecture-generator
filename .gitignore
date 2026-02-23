@@ -29,6 +29,10 @@ npm-debug.log*
 
 # Private planning docs
 future-plans.md
+AUDIT-REPORT.md
+PLAN.md
+TESTING.md
+drawio-mcp-comparison.md
 
 # TypeScript cache
 *.tsbuildinfo

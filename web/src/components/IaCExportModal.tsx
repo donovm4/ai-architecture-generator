@@ -40,6 +40,7 @@ export function IaCExportModal({ isOpen, onClose, architecture, initialFormat }:
     includeReadme: true,
     includePipeline: null,
   });
+  const [description, setDescription] = useState(architecture?.description || '');
   const [result, setResult] = useState<ExportResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +51,10 @@ export function IaCExportModal({ isOpen, onClose, architecture, initialFormat }:
     if (isOpen && initialFormat) {
       setOptions(prev => ({ ...prev, format: initialFormat }));
     }
-  }, [isOpen, initialFormat]);
+    if (isOpen) {
+      setDescription(architecture?.description || '');
+    }
+  }, [isOpen, initialFormat, architecture]);
 
   const toggleEnv = useCallback((env: 'production' | 'development' | 'staging') => {
     setOptions(prev => {
@@ -73,7 +77,7 @@ export function IaCExportModal({ isOpen, onClose, architecture, initialFormat }:
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ architecture, options }),
+        body: JSON.stringify({ architecture: { ...architecture, description }, options }),
       });
 
       if (!res.ok) {
@@ -137,6 +141,18 @@ export function IaCExportModal({ isOpen, onClose, architecture, initialFormat }:
         </div>
 
         <div className="iac-modal-body">
+          {/* Description */}
+          <div className="iac-field">
+            <label>Description</label>
+            <textarea
+              className="iac-description-input"
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Describe the architecture for the README and comments…"
+              rows={3}
+            />
+          </div>
+
           {/* Format selector */}
           <div className="iac-field">
             <label>Format</label>

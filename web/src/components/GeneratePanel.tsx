@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import type { AuthStatus, GenerateResponse } from '../types';
 import { TemplateGrid } from './TemplateGrid';
 
@@ -11,10 +11,6 @@ interface GeneratePanelProps {
   } | null;
   previousResult: GenerateResponse | null;
   diagramMode: 'azure' | 'generic';
-  validationEnabled?: boolean;
-  isValidating?: boolean;
-  autoFixPrompt?: string | null;
-  onAutoFixConsumed?: () => void;
   onGenerated: (result: GenerateResponse, prompt: string, title: string) => void;
   onError: (error: string) => void;
 }
@@ -46,10 +42,6 @@ export function GeneratePanel({
   config,
   previousResult,
   diagramMode,
-  validationEnabled,
-  isValidating,
-  autoFixPrompt,
-  onAutoFixConsumed,
   onGenerated,
   onError,
 }: GeneratePanelProps) {
@@ -65,14 +57,6 @@ export function GeneratePanel({
 
   const canGenerate = prompt.trim().length > 0 && config;
   const isRefineMode = previousResult !== null && conversation.length > 0;
-
-  // Handle auto-fix prompts from validation panel
-  useEffect(() => {
-    if (autoFixPrompt) {
-      setPrompt(autoFixPrompt);
-      onAutoFixConsumed?.();
-    }
-  }, [autoFixPrompt, onAutoFixConsumed]);
 
   const handleGenerate = async () => {
     if (!canGenerate) return;
@@ -356,14 +340,9 @@ export function GeneratePanel({
           <button
             className="btn btn-primary btn-generate"
             onClick={handleGenerate}
-            disabled={!canGenerate || isGenerating || isValidating}
+            disabled={!canGenerate || isGenerating}
           >
-            {isValidating ? (
-              <>
-                <span className="spinner" />
-                Validating architecture...
-              </>
-            ) : isGenerating ? (
+            {isGenerating ? (
               <>
                 <span className="spinner" />
                 {generationStatus || 'Generating...'}
@@ -377,13 +356,6 @@ export function GeneratePanel({
               </>
             )}
           </button>
-
-          {/* Validation status indicator */}
-          {validationEnabled && diagramMode === 'azure' && !isGenerating && !isValidating && (
-            <div className="validation-enabled-hint">
-              🔍 Azure validation will run after generation
-            </div>
-          )}
         </>
       )}
     </div>
