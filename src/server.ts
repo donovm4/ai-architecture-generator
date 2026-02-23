@@ -12,8 +12,16 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { generate } from './index.js';
-import { SYSTEM_PROMPT, parseAIResponse } from './ai/parser.js';
+import { SYSTEM_PROMPT, parseAIResponse, GENERIC_SYSTEM_PROMPT, GENERIC_REFINEMENT_PROMPT, parseGenericAIResponse } from './ai/parser.js';
 import { DrawIOBuilder } from './drawio/xml-builder.js';
+import { GenericDiagramBuilder } from './drawio/generic-builder.js';
+import { assess } from './assessment/assessor.js';
+import type { Pillar } from './assessment/assessor.js';
+import { validateArchitecture } from './validation/validator.js';
+import { getTemplateList, getTemplateById } from './templates/index.js';
+import { importDrawio } from './import/drawio-importer.js';
+import { getAllResourceTypes } from './import/shape-mapper.js';
+import type { ManualMapping } from './import/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -346,6 +354,33 @@ app.get('/api/subscriptions/:subId/openai-resources/:name/deployments', (req, re
   res.json(chatDeploys);
 });
 
+// ==================== Template routes ====================
+
+/**
+ * GET /api/templates
+ * Returns metadata for all available reference architecture templates.
+ */
+app.get('/api/templates', (_req, res) => {
+  res.json(getTemplateList());
+});
+
+/**
+ * GET /api/templates/:id
+ * Returns the full template (metadata + architecture JSON) for a given template ID.
+ */
+app.get('/api/templates/:id', (req, res) => {
+  const { id } = req.params;
+  // Validate template ID format to prevent log injection / error message abuse
+  if (!/^[a-z0-9-]{1,64}$/.test(id)) {
+    return res.status(400).json({ error: 'Invalid template ID format' });
+  }
+  const template = getTemplateById(id);
+  if (!template) {
+    return res.status(404).json({ error: `Template "${id}" not found` });
+  }
+  res.json(template);
+});
+
 // ==================== Generation routes ====================
 
 const REFINEMENT_PROMPT = `You are refining an existing Azure architecture. The previous architecture JSON is provided below. The user wants to make changes to it.
@@ -357,6 +392,8 @@ IMPORTANT RULES FOR REFINEMENT:
 - Output a COMPLETE merged JSON (not just the diff)
 - Use the same JSON format as a fresh generation
 - Maintain all existing connections unless changes are needed
+- When applying multiple fixes, apply ALL of them in a single pass — do not skip any
+- Follow all Azure architectural constraints (subnet naming, sizing, NSG rules, etc.) from the system prompt
 
 Previous architecture:
 `;
@@ -367,7 +404,8 @@ Previous architecture:
  */
 app.post('/api/generate/stream', async (req, res) => {
   try {
-    const { prompt, title, endpoint, deploymentName, previousArchitecture } = req.body;
+    const { prompt, title, endpoint, deploymentName, previousArchitecture, mode } = req.body;
+    const diagramMode: 'azure' | 'generic' = mode === 'generic' ? 'generic' : 'azure';
 
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required' });
@@ -426,8 +464,10 @@ app.post('/api/generate/stream', async (req, res) => {
     }
 
     // Build messages array
+    const systemPrompt = diagramMode === 'generic' ? GENERIC_SYSTEM_PROMPT : SYSTEM_PROMPT;
+    const refinementPrompt = diagramMode === 'generic' ? GENERIC_REFINEMENT_PROMPT : REFINEMENT_PROMPT;
     const messages: Array<{ role: string; content: string }> = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt },
     ];
 
     if (previousArchitecture) {
@@ -435,7 +475,7 @@ app.post('/api/generate/stream', async (req, res) => {
       sendEvent('status', { message: 'Refining architecture...' });
       messages.push({
         role: 'user',
-        content: REFINEMENT_PROMPT + JSON.stringify(previousArchitecture, null, 2) + '\n\nUser changes: ' + prompt,
+        content: refinementPrompt + JSON.stringify(previousArchitecture, null, 2) + '\n\nUser changes: ' + prompt,
       });
     } else {
       sendEvent('status', { message: 'Analysing your architecture...' });
@@ -543,11 +583,20 @@ app.post('/api/generate/stream', async (req, res) => {
 
     sendEvent('status', { message: 'Building diagram...' });
 
-    const architecture = parseAIResponse(parsed, title);
-    const builder = new DrawIOBuilder();
-    const xml = builder.generate(architecture);
+    let xml: string;
+    let architecture: any;
 
-    console.log(`  [AI/Stream] Generated ${parsed.resources?.length || 0} resources, ${tokenCount} tokens`);
+    if (diagramMode === 'generic') {
+      architecture = parseGenericAIResponse(parsed);
+      const builder = new GenericDiagramBuilder();
+      xml = builder.generate(architecture);
+    } else {
+      architecture = parseAIResponse(parsed, title);
+      const builder = new DrawIOBuilder();
+      xml = builder.generate(architecture);
+    }
+
+    console.log(`  [AI/Stream] Generated ${diagramMode === 'generic' ? (parsed.systems?.length || 0) + ' systems' : (parsed.resources?.length || 0) + ' resources'}, ${tokenCount} tokens`);
 
     sendEvent('result', { xml, architecture, parsed });
     sendEvent('done', {});
@@ -571,7 +620,8 @@ app.post('/api/generate/stream', async (req, res) => {
  */
 app.post('/api/generate', async (req, res) => {
   try {
-    const { prompt, title, endpoint, deploymentName, previousArchitecture } = req.body;
+    const { prompt, title, endpoint, deploymentName, previousArchitecture, mode } = req.body;
+    const diagramMode: 'azure' | 'generic' = mode === 'generic' ? 'generic' : 'azure';
 
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required' });
@@ -618,15 +668,17 @@ app.post('/api/generate', async (req, res) => {
       }
 
       // Build messages array (with optional refinement)
+      const systemPrompt = diagramMode === 'generic' ? GENERIC_SYSTEM_PROMPT : SYSTEM_PROMPT;
+      const refinementPrompt = diagramMode === 'generic' ? GENERIC_REFINEMENT_PROMPT : REFINEMENT_PROMPT;
       const messages: Array<{ role: string; content: string }> = [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
       ];
 
       if (previousArchitecture) {
         console.log('  [AI] Refinement mode - building on previous architecture');
         messages.push({
           role: 'user',
-          content: REFINEMENT_PROMPT + JSON.stringify(previousArchitecture, null, 2) + '\n\nUser changes: ' + prompt,
+          content: refinementPrompt + JSON.stringify(previousArchitecture, null, 2) + '\n\nUser changes: ' + prompt,
         });
       } else {
         messages.push({ role: 'user', content: prompt });
@@ -709,11 +761,20 @@ app.post('/api/generate', async (req, res) => {
         });
       }
 
-      const architecture = parseAIResponse(parsed, title);
-      const builder = new DrawIOBuilder();
-      const xml = builder.generate(architecture);
+      let xml: string;
+      let architecture: any;
 
-      console.log(`  [AI] Generated ${parsed.resources?.length || 0} resources`);
+      if (diagramMode === 'generic') {
+        architecture = parseGenericAIResponse(parsed);
+        const builder = new GenericDiagramBuilder();
+        xml = builder.generate(architecture);
+      } else {
+        architecture = parseAIResponse(parsed, title);
+        const builder = new DrawIOBuilder();
+        xml = builder.generate(architecture);
+      }
+
+      console.log(`  [AI] Generated ${diagramMode === 'generic' ? (parsed.systems?.length || 0) + ' systems' : (parsed.resources?.length || 0) + ' resources'}`);
       return res.json({ xml, architecture, parsed });
     }
 
@@ -724,6 +785,229 @@ app.post('/api/generate', async (req, res) => {
   } catch (error: any) {
     console.error('  [Error] Generation failed:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ==================== Validation route ====================
+
+/**
+ * POST /api/validate
+ * Validate an architecture against Azure best practices and constraints.
+ *
+ * Body:
+ *   { architecture: Architecture }
+ *
+ * Returns: ValidationResult
+ */
+app.post('/api/validate', (req, res) => {
+  try {
+    const { architecture } = req.body;
+    if (!architecture || typeof architecture !== 'object' || Array.isArray(architecture)) {
+      return res.status(400).json({ error: 'architecture must be a non-null object in request body' });
+    }
+
+    const result = validateArchitecture(architecture);
+    console.log(`  [Validation] ${result.summary.errors} errors, ${result.summary.warnings} warnings, ${result.summary.info} info (${result.duration}ms)`);
+    res.json(result);
+  } catch (error: any) {
+    console.error('  [Validation] Error:', error);
+    res.status(500).json({ error: error.message || 'Validation failed' });
+  }
+});
+
+// ==================== Import routes ====================
+
+/**
+ * POST /api/import/drawio
+ * Parse a .drawio XML file and map shapes to Azure resource types.
+ * Body: { xml: string }
+ * Returns: ImportResult
+ */
+app.post('/api/import/drawio', (req, res) => {
+  try {
+    const { xml } = req.body;
+    if (!xml || typeof xml !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid "xml" field. Provide the .drawio file content as a string.' });
+    }
+    // Limit import size to 2MB to prevent XML bomb / DoS
+    if (xml.length > 2 * 1024 * 1024) {
+      return res.status(400).json({ error: 'File too large. Maximum import size is 2MB.' });
+    }
+
+    const result = importDrawio(xml);
+    console.log(`  [Import] Parsed ${result.mapping.totalShapes} shapes: ${result.mapping.mapped.length} mapped, ${result.mapping.unrecognized.length} unrecognized`);
+    return res.json(result);
+  } catch (error: any) {
+    console.error('  [Import] Error:', error.message);
+    return res.status(400).json({ error: error.message || 'Failed to parse .drawio file' });
+  }
+});
+
+/**
+ * POST /api/import/resolve
+ * Re-import with manual mappings for previously unrecognized shapes.
+ * Body: { xml: string, mappings: Array<{ cellId: string, resourceType: string }> }
+ * Returns: ImportResult
+ */
+app.post('/api/import/resolve', (req, res) => {
+  try {
+    const { xml, mappings } = req.body;
+    if (!xml || typeof xml !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid "xml" field.' });
+    }
+    // Limit import size to 2MB to prevent XML bomb / DoS
+    if (xml.length > 2 * 1024 * 1024) {
+      return res.status(400).json({ error: 'File too large. Maximum import size is 2MB.' });
+    }
+    if (!Array.isArray(mappings)) {
+      return res.status(400).json({ error: 'Missing or invalid "mappings" array.' });
+    }
+    if (mappings.length > 500) {
+      return res.status(400).json({ error: 'Too many mappings. Maximum is 500.' });
+    }
+
+    // Validate mappings
+    const manualMappings: ManualMapping[] = mappings
+      .filter((m: any) => m.cellId && m.resourceType)
+      .map((m: any) => ({ cellId: String(m.cellId), resourceType: String(m.resourceType) }));
+
+    const result = importDrawio(xml, manualMappings);
+    console.log(`  [Import/Resolve] Re-parsed with ${manualMappings.length} manual mappings`);
+    return res.json(result);
+  } catch (error: any) {
+    console.error('  [Import/Resolve] Error:', error.message);
+    return res.status(400).json({ error: error.message || 'Failed to re-import with mappings' });
+  }
+});
+
+/**
+ * GET /api/import/resource-types
+ * Get all known resource types for the manual mapping dropdown.
+ * Returns: Array<{ key: string, displayName: string, category: string }>
+ */
+app.get('/api/import/resource-types', (_req, res) => {
+  res.json(getAllResourceTypes());
+});
+
+// ==================== Assessment routes ====================
+
+/**
+ * POST /api/assess
+ * Run WAF-style assessment on an architecture.
+ *
+ * Body:
+ *   { architecture: Architecture, pillars?: ('cost'|'security'|'reliability'|'performance')[] }
+ * Returns: AssessmentResult
+ */
+app.post('/api/assess', (req, res) => {
+  try {
+    const { architecture, pillars } = req.body;
+
+    if (!architecture || typeof architecture !== 'object' || Array.isArray(architecture)) {
+      return res.status(400).json({ error: 'Architecture must be a non-null object.' });
+    }
+
+    // Validate pillars if provided
+    const validPillars: Pillar[] = ['cost', 'security', 'reliability', 'performance'];
+    if (pillars) {
+      if (!Array.isArray(pillars)) {
+        return res.status(400).json({ error: 'pillars must be an array.' });
+      }
+      for (const p of pillars) {
+        if (!validPillars.includes(p as Pillar)) {
+          return res.status(400).json({ error: `Invalid pillar: "${p}". Valid: ${validPillars.join(', ')}` });
+        }
+      }
+    }
+
+    const result = assess(architecture, pillars as Pillar[] | undefined);
+    res.json(result);
+  } catch (error: any) {
+    console.error('  [Error] Assessment failed:', error);
+    res.status(500).json({ error: error.message || 'Assessment failed' });
+  }
+});
+
+// ==================== IaC Export routes ====================
+
+import { generateBicep } from './iac/bicep/bicep-generator.js';
+import { generateTerraform } from './iac/terraform/tf-generator.js';
+import { generateReadme } from './iac/readme-generator.js';
+import type { IaCExportOptions } from './iac/types.js';
+
+/**
+ * POST /api/export/bicep
+ * Generate Bicep IaC templates from an architecture.
+ * Body: { architecture: Architecture, options: IaCExportOptions }
+ * Returns: IaCExportResult
+ */
+app.post('/api/export/bicep', (req, res) => {
+  try {
+    const { architecture, options } = req.body;
+    if (!architecture || typeof architecture !== 'object' || Array.isArray(architecture)) {
+      return res.status(400).json({ error: 'architecture must be a non-null object' });
+    }
+
+    const exportOptions: IaCExportOptions = {
+      format: 'bicep',
+      environments: options?.environments || ['production'],
+      useAVM: options?.useAVM !== false,
+      includeReadme: options?.includeReadme !== false,
+      includePipeline: options?.includePipeline || null,
+    };
+
+    const result = generateBicep(architecture, exportOptions);
+
+    // Optionally include README
+    if (exportOptions.includeReadme) {
+      const readme = generateReadme(architecture, exportOptions, result);
+      result.files.push(readme);
+      result.summary.totalFiles = result.files.length;
+    }
+
+    console.log(`  [IaC] Generated Bicep: ${result.summary.totalFiles} files, ${result.summary.resourceCount} resources`);
+    res.json(result);
+  } catch (error: any) {
+    console.error('  [IaC/Bicep] Export failed:', error);
+    res.status(500).json({ error: error.message || 'Bicep export failed' });
+  }
+});
+
+/**
+ * POST /api/export/terraform
+ * Generate Terraform IaC templates from an architecture.
+ * Body: { architecture: Architecture, options: IaCExportOptions }
+ * Returns: IaCExportResult
+ */
+app.post('/api/export/terraform', (req, res) => {
+  try {
+    const { architecture, options } = req.body;
+    if (!architecture || typeof architecture !== 'object' || Array.isArray(architecture)) {
+      return res.status(400).json({ error: 'architecture must be a non-null object' });
+    }
+
+    const exportOptions: IaCExportOptions = {
+      format: 'terraform',
+      environments: options?.environments || ['production'],
+      useAVM: options?.useAVM !== false,
+      includeReadme: options?.includeReadme !== false,
+      includePipeline: options?.includePipeline || null,
+    };
+
+    const result = generateTerraform(architecture, exportOptions);
+
+    // Optionally include README
+    if (exportOptions.includeReadme) {
+      const readme = generateReadme(architecture, exportOptions, result);
+      result.files.push(readme);
+      result.summary.totalFiles = result.files.length;
+    }
+
+    console.log(`  [IaC] Generated Terraform: ${result.summary.totalFiles} files, ${result.summary.resourceCount} resources`);
+    res.json(result);
+  } catch (error: any) {
+    console.error('  [IaC/Terraform] Export failed:', error);
+    res.status(500).json({ error: error.message || 'Terraform export failed' });
   }
 });
 

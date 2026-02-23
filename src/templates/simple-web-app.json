@@ -1,0 +1,53 @@
+{
+  "title": "Simple Web Application",
+  "description": "Minimal Azure web application with App Service for hosting, Azure SQL Database for persistence, Key Vault for secrets management, and Application Insights for monitoring.",
+  "regions": [
+    {
+      "name": "West Europe",
+      "code": "westeurope",
+      "isPrimary": true,
+      "resources": [
+        {
+          "type": "vnet",
+          "name": "webapp-vnet",
+          "addressSpace": "10.0.0.0/16",
+          "subnets": [
+            {
+              "type": "subnet",
+              "name": "app-subnet",
+              "addressPrefix": "10.0.1.0/24",
+              "resources": [
+                { "type": "appService", "name": "web-app" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "pe-subnet",
+              "addressPrefix": "10.0.2.0/24",
+              "resources": [
+                { "type": "privateEndpoint", "name": "sql-pe" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "globalResources": [
+    { "type": "appServicePlan", "name": "web-app-plan" },
+    { "type": "sqlDatabase", "name": "webapp-sql-db" },
+    { "type": "keyVault", "name": "webapp-key-vault" },
+    { "type": "appInsights", "name": "webapp-insights" },
+    { "type": "logAnalytics", "name": "webapp-log-analytics" },
+    { "type": "storageAccount", "name": "webappstore" }
+  ],
+  "connections": [
+    { "from": "web-app", "to": "sql-pe", "label": "SQL Connection" },
+    { "from": "sql-pe", "to": "webapp-sql-db", "label": "Private Link", "style": "dashed" },
+    { "from": "web-app", "to": "webapp-key-vault", "label": "Secrets", "style": "dashed" },
+    { "from": "web-app", "to": "webappstore", "label": "Blob Storage" },
+    { "from": "web-app", "to": "webapp-insights", "label": "Telemetry", "style": "dashed" },
+    { "from": "webapp-insights", "to": "webapp-log-analytics", "label": "Logs" },
+    { "from": "web-app-plan", "to": "web-app", "label": "Hosts", "style": "dashed" }
+  ]
+}

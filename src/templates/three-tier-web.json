@@ -1,0 +1,62 @@
+{
+  "title": "Three-Tier Web Application",
+  "description": "Classic three-tier architecture with web frontend behind an Application Gateway, application tier with VM Scale Sets, and a data tier with Azure SQL Database and Redis Cache.",
+  "regions": [
+    {
+      "name": "West Europe",
+      "code": "westeurope",
+      "isPrimary": true,
+      "resources": [
+        {
+          "type": "vnet",
+          "name": "app-vnet",
+          "addressSpace": "10.0.0.0/16",
+          "subnets": [
+            {
+              "type": "subnet",
+              "name": "web-subnet",
+              "addressPrefix": "10.0.1.0/24",
+              "resources": [
+                { "type": "appGateway", "name": "app-gateway" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "app-subnet",
+              "addressPrefix": "10.0.2.0/24",
+              "resources": [
+                { "type": "vmss", "name": "app-tier-vmss" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "data-subnet",
+              "addressPrefix": "10.0.3.0/24",
+              "resources": [
+                { "type": "privateEndpoint", "name": "sql-pe" },
+                { "type": "privateEndpoint", "name": "redis-pe" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "globalResources": [
+    { "type": "sqlDatabase", "name": "app-sql-database" },
+    { "type": "redis", "name": "app-redis-cache" },
+    { "type": "keyVault", "name": "app-key-vault" },
+    { "type": "storageAccount", "name": "appdiagstore" },
+    { "type": "appInsights", "name": "app-insights" },
+    { "type": "logAnalytics", "name": "app-log-analytics" }
+  ],
+  "connections": [
+    { "from": "app-gateway", "to": "app-tier-vmss", "label": "HTTP/HTTPS" },
+    { "from": "app-tier-vmss", "to": "sql-pe", "label": "SQL Connection" },
+    { "from": "app-tier-vmss", "to": "redis-pe", "label": "Cache" },
+    { "from": "sql-pe", "to": "app-sql-database", "label": "Private Link", "style": "dashed" },
+    { "from": "redis-pe", "to": "app-redis-cache", "label": "Private Link", "style": "dashed" },
+    { "from": "app-tier-vmss", "to": "app-key-vault", "label": "Secrets", "style": "dashed" },
+    { "from": "app-insights", "to": "app-log-analytics", "label": "Telemetry" }
+  ]
+}

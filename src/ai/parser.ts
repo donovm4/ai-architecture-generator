@@ -5,6 +5,7 @@
 
 import type { Architecture, Region, VNet, Subnet, Resource, ResourceGroup, OnPremises, Connection, DiagramPage } from '../schema/types.js';
 import { resolveResourceType, RESOURCES, CONTAINER_STYLES } from '../schema/resources.js';
+import type { GenericArchitecture } from '../schema/generic-types.js';
 
 export interface AIProvider {
   name: string;
@@ -168,6 +169,49 @@ Rules:
 12. When the user mentions "pages", "tabs", "layers", or "separate views", create a multi-page diagram using the "pages" array. Each page has a name and its own resources and connections. Example: "pages": [{"name": "Network Overview", "resources": [...], "connections": [...]}, {"name": "Application Layer", "resources": [...], "connections": [...]}]. Common page splits: "Network" + "Application" + "Data", or one page per region.
 13. If no pages are requested, do NOT use the pages array — use the flat structure.
 14. ALWAYS include a "title" and "description" field. The description should explain what this architecture does, why key design choices were made, and important considerations (3-6 sentences). For multi-page diagrams, also include a "description" field on each page explaining what that specific page/view shows.
+
+AZURE ARCHITECTURAL CONSTRAINTS (MANDATORY — violations cause validation errors):
+
+Subnet naming requirements:
+- Azure Firewall MUST be placed in a subnet named EXACTLY "AzureFirewallSubnet" — no other name is accepted
+- Azure Bastion MUST be placed in a subnet named EXACTLY "AzureBastionSubnet" — no other name is accepted
+- VPN Gateway and ExpressRoute Gateway MUST be placed in a subnet named EXACTLY "GatewaySubnet"
+- Application Gateway MUST be in its own dedicated subnet (cannot share with other resources)
+
+Subnet sizing requirements:
+- AzureFirewallSubnet: minimum /26 prefix (e.g., 10.0.1.0/26)
+- AzureBastionSubnet: minimum /26 prefix (e.g., 10.0.2.0/26)
+- GatewaySubnet: minimum /27 prefix (e.g., 10.0.3.0/27)
+- Application Gateway subnet: minimum /26 prefix
+- AKS subnet: minimum /24 prefix (recommended for pod IP allocation)
+- SQL Managed Instance subnet: minimum /27, must be dedicated (no other resources)
+- General subnets: use /24 unless there's a specific reason for smaller
+
+Network security requirements:
+- NEVER attach an NSG to GatewaySubnet (breaks VPN/ExpressRoute)
+- Every subnet containing VMs SHOULD have an NSG with appropriate rules
+- Hub VNets with spokes MUST contain a Firewall or NVA for traffic inspection
+- Spoke VNets MUST have a VNet peering connection to the hub VNet
+- Spokes should NOT peer directly to each other — route through hub
+- If Azure Firewall exists, spoke subnets need a Route Table (UDR) with default route (0.0.0.0/0) pointing to Firewall
+
+Service placement requirements:
+- PaaS services (SQL, CosmosDB, Key Vault, Storage, Redis, Event Hub, Service Bus, AI services) SHOULD use private endpoints in production architectures
+- AKS clusters SHOULD be in their own dedicated subnet, not shared with other resources
+- AKS clusters SHOULD have an associated Azure Container Registry (ACR)
+- App Services MUST have an App Service Plan
+- API Management in production SHOULD be deployed inside a VNet
+- VMs SHOULD specify availability zones or availability sets for high availability
+- VMs SHOULD have associated disk configuration
+- Load Balancers and Application Gateways MUST have backend pool targets with connections to them
+- Architecture SHOULD include monitoring (Log Analytics workspace + Application Insights)
+- VMs SHOULD have a Recovery Services Vault for backup
+
+VNet requirements:
+- VNets MUST have a valid addressSpace (e.g., "10.0.0.0/16")
+- VNets SHOULD contain at least one subnet
+- Peered VNets MUST NOT have overlapping address spaces
+- Each subnet MUST have a valid addressPrefix within the VNet's addressSpace
 
 Only output the JSON, no explanation.`;
 
@@ -609,4 +653,385 @@ function regionNameToCode(name: string): string {
     'japan east': 'jpe',
   };
   return codes[name.toLowerCase()] || name.toLowerCase().replace(/\s+/g, '').substring(0, 3);
+}
+
+// ==================== GENERIC ARCHITECTURE SUPPORT ====================
+
+/**
+ * System prompt for Generic (non-Azure) architecture diagrams.
+ * Instructs the AI to output JSON matching the GenericArchitecture interface.
+ */
+export const GENERIC_SYSTEM_PROMPT = `You are a generic architecture diagram parser. Convert natural language descriptions into structured JSON for generating Draw.io diagrams. You are NOT limited to Azure — you can model ANY technology stack: AI agent flows, microservices, data pipelines, network topologies, and more.
+
+Output ONLY valid JSON with this structure:
+{
+  "title": "Architecture Title",
+  "description": "A comprehensive explanation of this architecture: what it does, why this design was chosen, key design decisions, and important considerations. This should be 3-6 sentences providing valuable context.",
+  "type": "generic|agent-flow|microservices|data-pipeline|network",
+  "backgroundColor": "#FFFFFF",
+  "animations": {
+    "enabled": true,
+    "flowAnimation": true
+  },
+  "systems": [
+    {
+      "id": "layer-1",
+      "name": "Layer Name",
+      "type": "system|layer|zone|group|swimlane",
+      "style": {
+        "fillColor": "#E3F2FD",
+        "strokeColor": "#1565C0"
+      },
+      "nodes": [
+        {
+          "id": "node-1",
+          "type": "user",
+          "name": "Display Name",
+          "description": "tooltip text",
+          "properties": { "key": "value" },
+          "badge": "v2"
+        }
+      ],
+      "children": []
+    }
+  ],
+  "connections": [
+    {
+      "from": "node name or id",
+      "to": "node name or id",
+      "label": "connection label",
+      "style": "solid",
+      "color": "#2196F3",
+      "animated": true,
+      "bidirectional": false
+    }
+  ]
+}
+
+Node types available (use these exact type names):
+USER/ACTOR: user, userGroup
+AI/AGENT: agent, orchestrator, subAgent, llm
+API/WEB: api, webApp, mobileApp
+COMPUTE: server, container, microservice, workflow
+DATA: database, queue, cache, storage
+NETWORKING: gateway, loadBalancer, firewall
+MONITORING: monitor, notification, email, chat
+DOCUMENTS: document
+EXTERNAL: cloud, thirdParty, custom
+
+Container types (for the "systems" array, used as the "type" field on each system block):
+- system: High-level system boundary (bold blue border, shadow)
+- layer: Architectural layer — presentation, business logic, data (purple dashed border)
+- zone: Trust/security/network zone (amber thick border)
+- group: Generic grouping (gray border)
+- swimlane: Flow diagram swimlane (blue-gray, horizontal)
+
+Container style overrides: Each system block can include a "style" object with optional fields:
+  { "fillColor": "#hex", "strokeColor": "#hex", "fontColor": "#hex", "dashed": true/false, "opacity": 0-100 }
+
+Connection styles: solid (default), dashed, dotted, thick, animated
+Connection color: Any hex color (e.g. "#2196F3")
+Bidirectional connections: Set "bidirectional": true for arrows on both ends.
+Animated connections: Set "animated": true to add flowing dot animation along the edge.
+
+Animation config (top-level):
+- "animations": { "enabled": true, "flowAnimation": true } — enables flow animation on ALL connections
+- When the user asks for "animated", "flowing", "live", or "dynamic" diagrams, set animations.enabled = true
+- Individual connections can also set "animated": true independently
+
+Nodes go inside systems via the systems[].nodes array. Systems can have children (nested containers via the systems[].children array). You can nest containers to any depth.
+
+Architecture type hints:
+- "generic" — catch-all for any architecture
+- "agent-flow" — AI agent orchestration (use orchestrator, agent, subAgent, llm, etc.)
+- "microservices" — service mesh / microservice topology (use microservice, gateway, loadBalancer, queue, database, etc.)
+- "data-pipeline" — ETL / streaming data flow (use workflow, database, queue, storage, etc.)
+- "network" — network topology (use gateway, firewall, loadBalancer, server, etc.)
+
+Rules:
+1. Always include a "title" and "description" field.
+2. Group related nodes into system blocks for visual clarity.
+3. Use meaningful container types: "layer" for horizontal tiers (Frontend, Backend, Data), "zone" for security/trust boundaries, "group" for logical groupings, "system" for top-level system boundaries.
+4. Add descriptive labels on connections to show what flows between components.
+5. Use nested children when you need sub-groupings within a container.
+6. Include "properties" on nodes for relevant metadata (e.g. language, framework, port, protocol, version).
+7. Use "badge" for quick status indicators (e.g. "v2", "beta", "3x", "primary").
+8. When describing AI/agent architectures, use: orchestrator (main coordinator), agent/subAgent (workers), llm (language models), and connect them to show the control flow.
+9. For microservices, use: gateway (API gateway/ingress), microservice (each service), queue (message brokers), database (per-service data stores), loadBalancer, monitor.
+10. For data pipelines, use: workflow (ETL steps), database (sources/sinks), queue (streaming), storage (data lake/blob), monitor (observability).
+11. Suggest sensible properties even when the user doesn't specify them (e.g. framework, protocol, port, replicas, version).
+12. Default backgroundColor is "#FFFFFF". Only change it if the user requests a specific background.
+
+Example 1 — AI Agent Flow:
+{
+  "title": "Multi-Agent Research System",
+  "description": "An AI-powered research system where an orchestrator coordinates specialized sub-agents for web search, analysis, and report generation, all powered by an LLM backbone.",
+  "type": "agent-flow",
+  "animations": { "enabled": true, "flowAnimation": true },
+  "systems": [
+    {
+      "id": "user-layer", "name": "Users", "type": "layer",
+      "style": { "fillColor": "#E3F2FD", "strokeColor": "#1565C0" },
+      "nodes": [
+        { "id": "user-1", "type": "user", "name": "Researcher", "description": "Submits research queries" }
+      ]
+    },
+    {
+      "id": "orchestration", "name": "Orchestration Layer", "type": "system",
+      "style": { "fillColor": "#EDE7F6", "strokeColor": "#4527A0" },
+      "nodes": [
+        { "id": "orch-1", "type": "orchestrator", "name": "Research Orchestrator", "properties": { "framework": "LangGraph" }, "badge": "primary" }
+      ],
+      "children": [
+        {
+          "id": "agents", "name": "Specialist Agents", "type": "group",
+          "nodes": [
+            { "id": "search-agent", "type": "subAgent", "name": "Search Agent", "properties": { "tools": "Brave, Google" } },
+            { "id": "analysis-agent", "type": "subAgent", "name": "Analysis Agent" },
+            { "id": "writer-agent", "type": "subAgent", "name": "Writer Agent" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ai-layer", "name": "AI Services", "type": "zone",
+      "nodes": [
+        { "id": "llm-1", "type": "llm", "name": "GPT-4", "properties": { "provider": "OpenAI", "tokens": "128k" } }
+      ]
+    },
+    {
+      "id": "data-layer", "name": "Data Storage", "type": "layer",
+      "nodes": [
+        { "id": "db-1", "type": "database", "name": "Vector DB", "properties": { "engine": "Pinecone" } },
+        { "id": "cache-1", "type": "cache", "name": "Redis Cache" }
+      ]
+    }
+  ],
+  "connections": [
+    { "from": "Researcher", "to": "Research Orchestrator", "label": "Query", "animated": true },
+    { "from": "Research Orchestrator", "to": "Search Agent", "label": "Search task", "style": "dashed" },
+    { "from": "Research Orchestrator", "to": "Analysis Agent", "label": "Analyze task", "style": "dashed" },
+    { "from": "Research Orchestrator", "to": "Writer Agent", "label": "Write task", "style": "dashed" },
+    { "from": "Search Agent", "to": "GPT-4", "label": "LLM calls", "color": "#9C27B0" },
+    { "from": "Analysis Agent", "to": "GPT-4", "label": "LLM calls", "color": "#9C27B0" },
+    { "from": "Writer Agent", "to": "GPT-4", "label": "LLM calls", "color": "#9C27B0" },
+    { "from": "Research Orchestrator", "to": "Vector DB", "label": "Store/retrieve", "style": "dashed" },
+    { "from": "Research Orchestrator", "to": "Redis Cache", "label": "Cache results" }
+  ]
+}
+
+Example 2 — Microservices:
+{
+  "title": "E-Commerce Platform",
+  "description": "A microservices-based e-commerce platform with an API gateway, domain-specific services, message-driven communication, and per-service databases.",
+  "type": "microservices",
+  "systems": [
+    {
+      "id": "clients", "name": "Clients", "type": "layer",
+      "nodes": [
+        { "id": "web", "type": "webApp", "name": "Web Store", "properties": { "framework": "React" } },
+        { "id": "mobile", "type": "mobileApp", "name": "Mobile App", "properties": { "platform": "React Native" } }
+      ]
+    },
+    {
+      "id": "edge", "name": "Edge Layer", "type": "zone",
+      "nodes": [
+        { "id": "gw", "type": "gateway", "name": "API Gateway", "properties": { "tech": "Kong" } },
+        { "id": "lb", "type": "loadBalancer", "name": "Load Balancer" }
+      ]
+    },
+    {
+      "id": "services", "name": "Services", "type": "system",
+      "nodes": [
+        { "id": "svc-order", "type": "microservice", "name": "Order Service", "properties": { "lang": "Go", "port": 8080 } },
+        { "id": "svc-product", "type": "microservice", "name": "Product Service", "properties": { "lang": "Node.js" } },
+        { "id": "svc-user", "type": "microservice", "name": "User Service", "properties": { "lang": "Java" } },
+        { "id": "svc-payment", "type": "microservice", "name": "Payment Service", "properties": { "lang": "Go" }, "badge": "PCI" }
+      ]
+    },
+    {
+      "id": "messaging", "name": "Messaging", "type": "group",
+      "nodes": [
+        { "id": "mq", "type": "queue", "name": "Kafka", "properties": { "partitions": 12 } }
+      ]
+    },
+    {
+      "id": "data", "name": "Data Layer", "type": "layer",
+      "nodes": [
+        { "id": "db-orders", "type": "database", "name": "Orders DB", "properties": { "engine": "PostgreSQL" } },
+        { "id": "db-products", "type": "database", "name": "Products DB", "properties": { "engine": "MongoDB" } },
+        { "id": "db-users", "type": "database", "name": "Users DB", "properties": { "engine": "PostgreSQL" } },
+        { "id": "cache", "type": "cache", "name": "Redis", "properties": { "purpose": "Session + cache" } }
+      ]
+    }
+  ],
+  "connections": [
+    { "from": "Web Store", "to": "API Gateway", "label": "HTTPS" },
+    { "from": "Mobile App", "to": "API Gateway", "label": "HTTPS" },
+    { "from": "API Gateway", "to": "Load Balancer", "label": "Route" },
+    { "from": "Load Balancer", "to": "Order Service", "label": "gRPC" },
+    { "from": "Load Balancer", "to": "Product Service", "label": "gRPC" },
+    { "from": "Load Balancer", "to": "User Service", "label": "gRPC" },
+    { "from": "Order Service", "to": "Payment Service", "label": "Payment flow", "style": "dashed" },
+    { "from": "Order Service", "to": "Kafka", "label": "Events", "animated": true },
+    { "from": "Product Service", "to": "Kafka", "label": "Events", "animated": true },
+    { "from": "Order Service", "to": "Orders DB", "label": "CRUD" },
+    { "from": "Product Service", "to": "Products DB", "label": "CRUD" },
+    { "from": "User Service", "to": "Users DB", "label": "CRUD" },
+    { "from": "User Service", "to": "Redis", "label": "Sessions" }
+  ]
+}
+
+Example 3 — Data Pipeline:
+{
+  "title": "Real-Time Analytics Pipeline",
+  "description": "A streaming data pipeline that ingests events, processes them in real-time, stores results in a data warehouse, and serves dashboards.",
+  "type": "data-pipeline",
+  "animations": { "enabled": true, "flowAnimation": true },
+  "systems": [
+    {
+      "id": "sources", "name": "Data Sources", "type": "layer",
+      "nodes": [
+        { "id": "app-events", "type": "api", "name": "App Events API" },
+        { "id": "iot", "type": "thirdParty", "name": "IoT Devices" },
+        { "id": "logs", "type": "storage", "name": "Log Files" }
+      ]
+    },
+    {
+      "id": "ingestion", "name": "Ingestion", "type": "zone",
+      "nodes": [
+        { "id": "kafka", "type": "queue", "name": "Kafka", "properties": { "topics": "events, logs, iot" } }
+      ]
+    },
+    {
+      "id": "processing", "name": "Processing", "type": "system",
+      "nodes": [
+        { "id": "stream", "type": "workflow", "name": "Stream Processor", "properties": { "tech": "Flink" } },
+        { "id": "batch", "type": "workflow", "name": "Batch ETL", "properties": { "tech": "Spark", "schedule": "hourly" } }
+      ]
+    },
+    {
+      "id": "storage-layer", "name": "Storage", "type": "layer",
+      "nodes": [
+        { "id": "dw", "type": "database", "name": "Data Warehouse", "properties": { "engine": "ClickHouse" } },
+        { "id": "lake", "type": "storage", "name": "Data Lake", "properties": { "format": "Parquet" } }
+      ]
+    },
+    {
+      "id": "serving", "name": "Serving", "type": "group",
+      "nodes": [
+        { "id": "dashboard", "type": "monitor", "name": "Grafana Dashboard" },
+        { "id": "alerts", "type": "notification", "name": "Alert Manager" }
+      ]
+    }
+  ],
+  "connections": [
+    { "from": "App Events API", "to": "Kafka", "label": "Events", "animated": true },
+    { "from": "IoT Devices", "to": "Kafka", "label": "Telemetry", "animated": true },
+    { "from": "Log Files", "to": "Kafka", "label": "Logs" },
+    { "from": "Kafka", "to": "Stream Processor", "label": "Real-time", "animated": true, "color": "#4CAF50" },
+    { "from": "Kafka", "to": "Batch ETL", "label": "Batch", "style": "dashed" },
+    { "from": "Stream Processor", "to": "Data Warehouse", "label": "Write" },
+    { "from": "Batch ETL", "to": "Data Lake", "label": "Store" },
+    { "from": "Data Lake", "to": "Data Warehouse", "label": "Load", "style": "dashed" },
+    { "from": "Data Warehouse", "to": "Grafana Dashboard", "label": "Query" },
+    { "from": "Grafana Dashboard", "to": "Alert Manager", "label": "Alerts", "style": "dotted", "color": "#FF9800" }
+  ]
+}
+
+Only output the JSON, no explanation.`;
+
+/**
+ * Generic refinement prompt prefix (analogous to REFINEMENT_PROMPT for Azure).
+ */
+export const GENERIC_REFINEMENT_PROMPT = `You are refining an existing generic architecture. The previous architecture JSON is provided below. The user wants to make changes to it.
+
+IMPORTANT RULES FOR REFINEMENT:
+- Keep ALL existing systems, nodes, and connections unless the user explicitly asks to remove them
+- Add new nodes/systems as requested
+- Modify properties of existing nodes if asked
+- Output a COMPLETE merged JSON (not just the diff)
+- Use the same JSON format as a fresh generation
+- Maintain all existing connections unless changes are needed
+
+Previous architecture:
+`;
+
+/**
+ * Parse and validate an AI response as a GenericArchitecture object.
+ * Applies defaults for missing fields.
+ */
+export function parseGenericAIResponse(raw: any): GenericArchitecture {
+  const arch: GenericArchitecture = {
+    title: raw.title || 'Architecture',
+    description: raw.description || undefined,
+    type: ['generic', 'agent-flow', 'microservices', 'data-pipeline', 'network'].includes(raw.type)
+      ? raw.type
+      : 'generic',
+    backgroundColor: raw.backgroundColor || '#FFFFFF',
+    animations: raw.animations
+      ? {
+          enabled: raw.animations.enabled ?? false,
+          flowAnimation: raw.animations.flowAnimation ?? false,
+          speed: raw.animations.speed,
+          pulseNodes: raw.animations.pulseNodes,
+          sequencePaths: raw.animations.sequencePaths,
+        }
+      : undefined,
+    theme: raw.theme || undefined,
+    systems: Array.isArray(raw.systems)
+      ? raw.systems.map(parseSystemBlock)
+      : undefined,
+    nodes: Array.isArray(raw.nodes)
+      ? raw.nodes.map(parseGenericNode)
+      : undefined,
+    connections: Array.isArray(raw.connections)
+      ? raw.connections.map(parseGenericConnection)
+      : undefined,
+  };
+
+  return arch;
+}
+
+function parseSystemBlock(raw: any): any {
+  return {
+    id: raw.id || undefined,
+    name: raw.name || 'Unnamed',
+    type: ['system', 'layer', 'zone', 'group', 'swimlane'].includes(raw.type)
+      ? raw.type
+      : 'group',
+    style: raw.style || undefined,
+    nodes: Array.isArray(raw.nodes)
+      ? raw.nodes.map(parseGenericNode)
+      : undefined,
+    children: Array.isArray(raw.children)
+      ? raw.children.map(parseSystemBlock)
+      : undefined,
+  };
+}
+
+function parseGenericNode(raw: any): any {
+  return {
+    id: raw.id || undefined,
+    type: raw.type || 'custom',
+    name: raw.name || 'Unnamed',
+    description: raw.description || undefined,
+    containedIn: raw.containedIn || undefined,
+    properties: raw.properties || undefined,
+    badge: raw.badge || undefined,
+  };
+}
+
+function parseGenericConnection(raw: any): any {
+  return {
+    from: raw.from,
+    to: raw.to,
+    label: raw.label || undefined,
+    style: ['solid', 'dashed', 'dotted', 'thick', 'animated'].includes(raw.style)
+      ? raw.style
+      : undefined,
+    color: raw.color || undefined,
+    bidirectional: raw.bidirectional || undefined,
+    animated: raw.animated || undefined,
+  };
 }

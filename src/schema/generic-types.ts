@@ -170,4 +170,6 @@ export interface GenericArchitecture {
   connections?: GenericConnection[];
   /** Animation settings (implemented by another agent). */
   animations?: AnimationConfig;
+  /** Background color for the diagram canvas (default: #FFFFFF). */
+  backgroundColor?: string;
 }

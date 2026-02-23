@@ -80,3 +80,24 @@ export interface GenerateResponse {
     }>;
   };
 }
+
+// ==================== Validation Types ====================
+
+export interface ValidationFinding {
+  id: string;
+  severity: 'error' | 'warning' | 'info';
+  category: 'subnet' | 'placement' | 'naming' | 'sizing' | 'config' | 'network';
+  resourceId: string;
+  resourceName: string;
+  title: string;
+  description: string;
+  sourceUrl?: string;
+  autoFixPrompt?: string;
+}
+
+export interface ValidationResult {
+  findings: ValidationFinding[];
+  summary: { errors: number; warnings: number; info: number };
+  validatedAt: string;
+  duration: number;
+}

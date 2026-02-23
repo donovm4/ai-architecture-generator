@@ -1,0 +1,68 @@
+{
+  "title": "Azure Data Platform",
+  "description": "Modern data platform with Azure Data Factory for orchestration, Databricks for data processing, Synapse Analytics for warehousing, and Azure Data Lake Storage (ADLS Gen2) as the data lake. Includes Purview for governance.",
+  "regions": [
+    {
+      "name": "West Europe",
+      "code": "westeurope",
+      "isPrimary": true,
+      "resources": [
+        {
+          "type": "vnet",
+          "name": "data-vnet",
+          "addressSpace": "10.0.0.0/16",
+          "subnets": [
+            {
+              "type": "subnet",
+              "name": "databricks-public-subnet",
+              "addressPrefix": "10.0.1.0/24",
+              "resources": []
+            },
+            {
+              "type": "subnet",
+              "name": "databricks-private-subnet",
+              "addressPrefix": "10.0.2.0/24",
+              "resources": []
+            },
+            {
+              "type": "subnet",
+              "name": "pe-subnet",
+              "addressPrefix": "10.0.3.0/24",
+              "resources": [
+                { "type": "privateEndpoint", "name": "adls-pe" },
+                { "type": "privateEndpoint", "name": "synapse-pe" },
+                { "type": "privateEndpoint", "name": "sql-pe" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "globalResources": [
+    { "type": "dataFactory", "name": "data-factory" },
+    { "type": "databricks", "name": "databricks-workspace" },
+    { "type": "synapse", "name": "synapse-workspace" },
+    { "type": "storageAccount", "name": "datalakegen2", "properties": { "kind": "StorageV2", "isHnsEnabled": true } },
+    { "type": "sqlDatabase", "name": "metadata-sql-db" },
+    { "type": "keyVault", "name": "data-key-vault" },
+    { "type": "purview", "name": "data-purview" },
+    { "type": "logAnalytics", "name": "data-log-analytics" },
+    { "type": "eventHub", "name": "ingestion-event-hub" }
+  ],
+  "connections": [
+    { "from": "data-factory", "to": "datalakegen2", "label": "Ingest data" },
+    { "from": "data-factory", "to": "databricks-workspace", "label": "Trigger notebooks" },
+    { "from": "data-factory", "to": "synapse-workspace", "label": "Load warehouse" },
+    { "from": "databricks-workspace", "to": "datalakegen2", "label": "Read/Write data" },
+    { "from": "databricks-workspace", "to": "synapse-workspace", "label": "Transform → Load" },
+    { "from": "synapse-workspace", "to": "datalakegen2", "label": "External tables" },
+    { "from": "adls-pe", "to": "datalakegen2", "label": "Private Link", "style": "dashed" },
+    { "from": "synapse-pe", "to": "synapse-workspace", "label": "Private Link", "style": "dashed" },
+    { "from": "sql-pe", "to": "metadata-sql-db", "label": "Private Link", "style": "dashed" },
+    { "from": "data-purview", "to": "datalakegen2", "label": "Scan & catalog", "style": "dashed" },
+    { "from": "data-purview", "to": "synapse-workspace", "label": "Lineage", "style": "dashed" },
+    { "from": "ingestion-event-hub", "to": "data-factory", "label": "Streaming ingestion" },
+    { "from": "data-factory", "to": "data-key-vault", "label": "Secrets", "style": "dashed" }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "title": "Microservices Architecture",
+  "description": "Cloud-native microservices on AKS with API Management as the API gateway, Service Bus for asynchronous messaging, Cosmos DB for distributed data, and Application Insights for observability.",
+  "regions": [
+    {
+      "name": "West Europe",
+      "code": "westeurope",
+      "isPrimary": true,
+      "resources": [
+        {
+          "type": "vnet",
+          "name": "microservices-vnet",
+          "addressSpace": "10.0.0.0/16",
+          "subnets": [
+            {
+              "type": "subnet",
+              "name": "apim-subnet",
+              "addressPrefix": "10.0.0.0/24",
+              "resources": [
+                { "type": "apiManagement", "name": "api-management" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "aks-subnet",
+              "addressPrefix": "10.0.4.0/22",
+              "resources": [
+                { "type": "aks", "name": "microservices-aks" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "pe-subnet",
+              "addressPrefix": "10.0.8.0/24",
+              "resources": [
+                { "type": "privateEndpoint", "name": "cosmos-pe" },
+                { "type": "privateEndpoint", "name": "servicebus-pe" },
+                { "type": "privateEndpoint", "name": "redis-pe" },
+                { "type": "privateEndpoint", "name": "acr-pe" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "globalResources": [
+    { "type": "frontDoor", "name": "global-front-door" },
+    { "type": "cosmosDb", "name": "microservices-cosmos-db" },
+    { "type": "serviceBus", "name": "microservices-service-bus" },
+    { "type": "redis", "name": "microservices-redis" },
+    { "type": "containerRegistry", "name": "microservicesacr" },
+    { "type": "keyVault", "name": "microservices-kv" },
+    { "type": "appInsights", "name": "microservices-insights" },
+    { "type": "logAnalytics", "name": "microservices-logs" },
+    { "type": "managedIdentity", "name": "aks-identity" }
+  ],
+  "connections": [
+    { "from": "global-front-door", "to": "api-management", "label": "HTTPS" },
+    { "from": "api-management", "to": "microservices-aks", "label": "API calls" },
+    { "from": "microservices-aks", "to": "cosmos-pe", "label": "Data" },
+    { "from": "cosmos-pe", "to": "microservices-cosmos-db", "label": "Private Link", "style": "dashed" },
+    { "from": "microservices-aks", "to": "servicebus-pe", "label": "Messages" },
+    { "from": "servicebus-pe", "to": "microservices-service-bus", "label": "Private Link", "style": "dashed" },
+    { "from": "microservices-aks", "to": "redis-pe", "label": "Cache" },
+    { "from": "redis-pe", "to": "microservices-redis", "label": "Private Link", "style": "dashed" },
+    { "from": "microservices-aks", "to": "acr-pe", "label": "Pull images" },
+    { "from": "acr-pe", "to": "microservicesacr", "label": "Private Link", "style": "dashed" },
+    { "from": "microservices-aks", "to": "microservices-kv", "label": "Secrets", "style": "dashed" },
+    { "from": "microservices-aks", "to": "aks-identity", "label": "Identity", "style": "dashed" },
+    { "from": "microservices-insights", "to": "microservices-logs", "label": "Telemetry" }
+  ]
+}

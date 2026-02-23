@@ -72,6 +72,8 @@ export class GenericDiagramBuilder {
     const pageWidth = this.estimatePageWidth(arch);
     const pageHeight = this.estimatePageHeight(arch);
 
+    const bgColor = arch.backgroundColor || '#FFFFFF';
+
     const mxGraphModel = diagram.ele('mxGraphModel', {
       dx: '1426',
       dy: '798',
@@ -88,6 +90,7 @@ export class GenericDiagramBuilder {
       pageHeight: String(pageHeight),
       math: '0',
       shadow: '0',
+      background: bgColor,
     });
 
     const root = mxGraphModel.ele('root');
@@ -121,11 +124,32 @@ export class GenericDiagramBuilder {
 
     // Build system blocks (containers)
     if (arch.systems && arch.systems.length > 0) {
-      let sysX = 50;
-      for (const system of arch.systems) {
-        const bounds = this.calculateSystemBounds(system);
-        this.buildSystemBlock(root, system, '1', { x: sysX, y: startY });
-        sysX += bounds.width + 60;
+      // Decide layout direction based on system types:
+      // - If systems are "layer" or "swimlane" type, stack vertically (top-to-bottom flow)
+      // - Otherwise, arrange horizontally
+      const layerTypes = new Set(['layer', 'swimlane']);
+      const isVerticalLayout = arch.systems.some(s => layerTypes.has(s.type))
+        || arch.type === 'agent-flow' || arch.type === 'data-pipeline';
+
+      if (isVerticalLayout) {
+        // Vertical stacking: each system below the previous one
+        // All systems share the same X and are as wide as the widest one
+        const maxWidth = Math.max(...arch.systems.map(s => this.calculateSystemBounds(s).width));
+        let sysY = startY;
+        for (const system of arch.systems) {
+          const bounds = this.calculateSystemBounds(system);
+          // Use maxWidth so all layers align nicely
+          this.buildSystemBlock(root, system, '1', { x: 50, y: sysY }, maxWidth);
+          sysY += bounds.height + 40;
+        }
+      } else {
+        // Horizontal arrangement (original behavior)
+        let sysX = 50;
+        for (const system of arch.systems) {
+          const bounds = this.calculateSystemBounds(system);
+          this.buildSystemBlock(root, system, '1', { x: sysX, y: startY });
+          sysX += bounds.width + 60;
+        }
       }
     }
 
@@ -150,11 +174,11 @@ export class GenericDiagramBuilder {
         const cols = Math.min(topLevelNodes.length, 4);
         let col = 0;
         for (const node of topLevelNodes) {
-          this.buildNode(root, node, '1', { x: nodeX + col * 140, y: nodeY });
+          this.buildNode(root, node, '1', { x: nodeX + col * 180, y: nodeY });
           col++;
           if (col >= cols) {
             col = 0;
-            nodeY += 120;
+            nodeY += 140;
           }
         }
       }
@@ -192,9 +216,11 @@ export class GenericDiagramBuilder {
     system: SystemBlock,
     containerId: string,
     pos: { x: number; y: number },
+    widthOverride?: number,
   ): void {
     const id = system.id || this.nextId();
     const bounds = this.calculateSystemBounds(system);
+    const finalWidth = widthOverride || bounds.width;
 
     // Determine container style
     let containerStyle = GENERIC_CONTAINER_STYLES[system.type] || GENERIC_CONTAINER_STYLES.group;
@@ -215,7 +241,7 @@ export class GenericDiagramBuilder {
       style: containerStyle,
       x: pos.x,
       y: pos.y,
-      width: bounds.width,
+      width: finalWidth,
       height: bounds.height,
     });
 
@@ -224,7 +250,7 @@ export class GenericDiagramBuilder {
       parentId: containerId,
       x: pos.x,
       y: pos.y,
-      width: bounds.width,
+      width: finalWidth,
       height: bounds.height,
     });
 
@@ -247,17 +273,17 @@ export class GenericDiagramBuilder {
 
     // Build nodes inside this container
     if (system.nodes && system.nodes.length > 0) {
-      let nodeX = 20;
+      let nodeX = 30;
       let nodeY = innerY;
       let col = 0;
-      const maxCols = Math.max(2, Math.floor((bounds.width - 40) / 140));
+      const maxCols = Math.max(2, Math.floor((finalWidth - 60) / 180));
 
       for (const node of system.nodes) {
-        this.buildNode(parent, node, id, { x: nodeX + col * 140, y: nodeY });
+        this.buildNode(parent, node, id, { x: nodeX + col * 180, y: nodeY });
         col++;
         if (col >= maxCols) {
           col = 0;
-          nodeY += 120;
+          nodeY += 140;
         }
       }
     }
@@ -282,29 +308,24 @@ export class GenericDiagramBuilder {
 
     const id = node.id || this.nextId();
 
-    // Build property label
-    const props = this.getDisplayProperties(node);
-    const propLabel = props.length > 0
-      ? '<br><font style="font-size:9px;color:#666666">' + props.join(' | ') + '</font>'
-      : '';
+    // Build a clean label — just the name, no HTML markup
+    const label = node.name;
 
-    // Build badge
-    const badgeText = node.badge
-      ? ` <font style="font-size:8px;color:#FFFFFF;background-color:#E91E63;padding:1px 3px;border-radius:3px;">${node.badge}</font>`
-      : '';
-
-    const label = node.name + badgeText + propLabel;
-
-    // Use the generic style (built-in shape, not an icon URL)
-    const style = def.style + 'verticalLabelPosition=bottom;verticalAlign=top;align=center;';
+    // Use the generic style with html=1 for proper rendering
+    const style = def.style + 'html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;whiteSpace=wrap;';
 
     const obj = parent.ele('object', {
       label,
       id,
     });
 
-    if (node.description) {
-      obj.att('tooltip', node.description);
+    if (node.description || node.badge || (node.properties && Object.keys(node.properties).length > 0)) {
+      const tooltipParts: string[] = [];
+      if (node.badge) tooltipParts.push(`[${node.badge}]`);
+      if (node.description) tooltipParts.push(node.description);
+      const props = this.getDisplayProperties(node);
+      if (props.length > 0) tooltipParts.push(props.join(' | '));
+      obj.att('tooltip', tooltipParts.join('\n'));
     }
     if (node.properties) {
       for (const [key, value] of Object.entries(node.properties)) {
@@ -355,7 +376,7 @@ export class GenericDiagramBuilder {
     pos: { x: number; y: number },
   ): void {
     const id = node.id || this.nextId();
-    const style = 'rounded=1;fillColor=#FAFAFA;strokeColor=#BDBDBD;fontColor=#424242;fontSize=11;whiteSpace=wrap;verticalLabelPosition=bottom;verticalAlign=top;align=center;';
+    const style = 'rounded=1;fillColor=#FAFAFA;strokeColor=#BDBDBD;fontColor=#424242;fontSize=11;html=1;whiteSpace=wrap;verticalLabelPosition=bottom;verticalAlign=top;align=center;';
 
     parent.ele('mxCell', {
       id,
@@ -398,7 +419,7 @@ export class GenericDiagramBuilder {
       }
 
       // Base edge style
-      let style = 'edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;labelBackgroundColor=#FFFFFF;';
+      let style = 'edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;labelBackgroundColor=#FFFFFF;fontColor=#333333;';
 
       // Connection style
       const isAnimated = conn.animated || conn.style === 'animated' || globalAnimation;
@@ -523,15 +544,15 @@ export class GenericDiagramBuilder {
 
   private getNextNodePosition(containerId: string): { x: number; y: number } {
     if (!this.containerNodePositions.has(containerId)) {
-      this.containerNodePositions.set(containerId, { nextX: 20, nextY: 40, col: 0 });
+      this.containerNodePositions.set(containerId, { nextX: 30, nextY: 40, col: 0 });
     }
     const pos = this.containerNodePositions.get(containerId)!;
-    const x = pos.nextX + pos.col * 140;
+    const x = pos.nextX + pos.col * 180;
     const y = pos.nextY;
     pos.col++;
     if (pos.col >= 4) {
       pos.col = 0;
-      pos.nextY += 120;
+      pos.nextY += 140;
     }
     return { x, y };
   }
@@ -560,8 +581,8 @@ export class GenericDiagramBuilder {
       const nodeCount = system.nodes.length;
       const maxCols = Math.min(nodeCount, 4);
       const rows = Math.ceil(nodeCount / maxCols);
-      const nodesWidth = maxCols * 140 + 40;
-      const nodesHeight = rows * 120;
+      const nodesWidth = maxCols * 180 + 60;
+      const nodesHeight = rows * 140;
       contentWidth = Math.max(contentWidth, nodesWidth);
       contentHeight += nodesHeight;
     }
@@ -575,15 +596,25 @@ export class GenericDiagramBuilder {
   private estimatePageWidth(arch: GenericArchitecture): number {
     let total = 100;
     if (arch.systems) {
-      for (const sys of arch.systems) {
-        total += this.calculateSystemBounds(sys).width + 60;
+      const layerTypes = new Set(['layer', 'swimlane']);
+      const isVertical = arch.systems.some(s => layerTypes.has(s.type))
+        || arch.type === 'agent-flow' || arch.type === 'data-pipeline';
+
+      if (isVertical) {
+        // Vertical layout: width is the widest system + margins
+        const maxW = Math.max(...arch.systems.map(s => this.calculateSystemBounds(s).width));
+        total = maxW + 100;
+      } else {
+        for (const sys of arch.systems) {
+          total += this.calculateSystemBounds(sys).width + 60;
+        }
       }
     }
     // Account for standalone nodes
     if (arch.nodes) {
       const topLevel = arch.nodes.filter(n => !n.containedIn);
       if (topLevel.length > 0) {
-        total += Math.min(topLevel.length, 4) * 140 + 100;
+        total += Math.min(topLevel.length, 4) * 180 + 100;
       }
     }
     return Math.max(1200, total);
@@ -592,14 +623,27 @@ export class GenericDiagramBuilder {
   private estimatePageHeight(arch: GenericArchitecture): number {
     let max = 600;
     if (arch.systems) {
-      for (const sys of arch.systems) {
-        max = Math.max(max, this.calculateSystemBounds(sys).height + 200);
+      const layerTypes = new Set(['layer', 'swimlane']);
+      const isVertical = arch.systems.some(s => layerTypes.has(s.type))
+        || arch.type === 'agent-flow' || arch.type === 'data-pipeline';
+
+      if (isVertical) {
+        // Vertical layout: height is the sum of all systems + gaps
+        let totalH = 200; // margins + title
+        for (const sys of arch.systems) {
+          totalH += this.calculateSystemBounds(sys).height + 40;
+        }
+        max = Math.max(max, totalH);
+      } else {
+        for (const sys of arch.systems) {
+          max = Math.max(max, this.calculateSystemBounds(sys).height + 200);
+        }
       }
     }
     if (arch.nodes) {
       const topLevel = arch.nodes.filter(n => !n.containedIn);
       const rows = Math.ceil(topLevel.length / 4);
-      max = Math.max(max, rows * 120 + 200);
+      max = Math.max(max, rows * 140 + 200);
     }
     return max;
   }

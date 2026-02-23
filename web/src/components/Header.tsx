@@ -1,9 +1,11 @@
 import type { AuthStatus } from '../types';
+import { ImportButton } from './ImportButton';
 
 interface HeaderProps {
   auth: AuthStatus | null;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
+  onImportClick: () => void;
 }
 
 function SunIcon() {
@@ -30,7 +32,7 @@ function MoonIcon() {
   );
 }
 
-export function Header({ auth, theme, onToggleTheme }: HeaderProps) {
+export function Header({ auth, theme, onToggleTheme, onImportClick }: HeaderProps) {
   return (
     <header className="header">
       <div className="header-left">
@@ -44,6 +46,7 @@ export function Header({ auth, theme, onToggleTheme }: HeaderProps) {
         </div>
       </div>
       <div className="header-right">
+        <ImportButton onClick={onImportClick} />
         <button
           className="theme-toggle"
           onClick={onToggleTheme}

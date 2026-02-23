@@ -1,0 +1,105 @@
+{
+  "title": "Hub-Spoke Network Topology",
+  "description": "Hub VNet with Azure Firewall and Bastion for centralized security, connected to two spoke VNets via peering. The hub provides shared services while spokes host workloads with network isolation.",
+  "regions": [
+    {
+      "name": "West Europe",
+      "code": "westeurope",
+      "isPrimary": true,
+      "resources": [
+        {
+          "type": "hubVnet",
+          "name": "hub-vnet",
+          "addressSpace": "10.0.0.0/16",
+          "subnets": [
+            {
+              "type": "subnet",
+              "name": "AzureFirewallSubnet",
+              "addressPrefix": "10.0.1.0/26",
+              "resources": [
+                { "type": "firewall", "name": "hub-firewall" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "AzureBastionSubnet",
+              "addressPrefix": "10.0.2.0/26",
+              "resources": [
+                { "type": "bastion", "name": "hub-bastion" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "GatewaySubnet",
+              "addressPrefix": "10.0.3.0/27",
+              "resources": [
+                { "type": "vpnGateway", "name": "hub-vpn-gateway" }
+              ]
+            }
+          ],
+          "peerings": [
+            { "name": "hub-to-spoke1", "remoteVnet": "spoke1-vnet", "allowGatewayTransit": true },
+            { "name": "hub-to-spoke2", "remoteVnet": "spoke2-vnet", "allowGatewayTransit": true }
+          ]
+        },
+        {
+          "type": "vnet",
+          "name": "spoke1-vnet",
+          "addressSpace": "10.1.0.0/16",
+          "subnets": [
+            {
+              "type": "subnet",
+              "name": "workload-subnet",
+              "addressPrefix": "10.1.1.0/24",
+              "resources": [
+                { "type": "vm", "name": "spoke1-vm-1" },
+                { "type": "vm", "name": "spoke1-vm-2" }
+              ]
+            }
+          ],
+          "peerings": [
+            { "name": "spoke1-to-hub", "remoteVnet": "hub-vnet", "useRemoteGateways": true }
+          ]
+        },
+        {
+          "type": "vnet",
+          "name": "spoke2-vnet",
+          "addressSpace": "10.2.0.0/16",
+          "subnets": [
+            {
+              "type": "subnet",
+              "name": "app-subnet",
+              "addressPrefix": "10.2.1.0/24",
+              "resources": [
+                { "type": "appService", "name": "spoke2-web-app" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "data-subnet",
+              "addressPrefix": "10.2.2.0/24",
+              "resources": [
+                { "type": "privateEndpoint", "name": "sql-private-endpoint" }
+              ]
+            }
+          ],
+          "peerings": [
+            { "name": "spoke2-to-hub", "remoteVnet": "hub-vnet", "useRemoteGateways": true }
+          ]
+        }
+      ]
+    }
+  ],
+  "globalResources": [
+    { "type": "logAnalytics", "name": "hub-log-analytics" }
+  ],
+  "connections": [
+    { "from": "hub-vnet", "to": "spoke1-vnet", "label": "VNet Peering", "style": "peering" },
+    { "from": "hub-vnet", "to": "spoke2-vnet", "label": "VNet Peering", "style": "peering" },
+    { "from": "hub-firewall", "to": "spoke1-vm-1", "label": "Inspects traffic", "style": "dashed" },
+    { "from": "hub-firewall", "to": "spoke2-web-app", "label": "Inspects traffic", "style": "dashed" },
+    { "from": "sql-private-endpoint", "to": "spoke2-web-app", "label": "Private Link" },
+    { "from": "hub-bastion", "to": "spoke1-vm-1", "label": "SSH/RDP", "style": "dashed" },
+    { "from": "hub-bastion", "to": "spoke1-vm-2", "label": "SSH/RDP", "style": "dashed" }
+  ]
+}

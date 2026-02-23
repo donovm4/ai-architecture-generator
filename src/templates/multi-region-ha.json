@@ -1,0 +1,108 @@
+{
+  "title": "Multi-Region High Availability",
+  "description": "Dual-region active-passive architecture with Azure Traffic Manager for global load balancing, identical app stacks in each region, and geo-replicated Azure SQL Database for data resilience.",
+  "regions": [
+    {
+      "name": "West Europe",
+      "code": "westeurope",
+      "isPrimary": true,
+      "resources": [
+        {
+          "type": "vnet",
+          "name": "primary-vnet",
+          "addressSpace": "10.0.0.0/16",
+          "subnets": [
+            {
+              "type": "subnet",
+              "name": "web-subnet",
+              "addressPrefix": "10.0.1.0/24",
+              "resources": [
+                { "type": "appGateway", "name": "primary-app-gw" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "app-subnet",
+              "addressPrefix": "10.0.2.0/24",
+              "resources": [
+                { "type": "appService", "name": "primary-web-app" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "data-subnet",
+              "addressPrefix": "10.0.3.0/24",
+              "resources": [
+                { "type": "privateEndpoint", "name": "primary-sql-pe" },
+                { "type": "privateEndpoint", "name": "primary-redis-pe" }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "North Europe",
+      "code": "northeurope",
+      "resources": [
+        {
+          "type": "vnet",
+          "name": "secondary-vnet",
+          "addressSpace": "10.1.0.0/16",
+          "subnets": [
+            {
+              "type": "subnet",
+              "name": "web-subnet",
+              "addressPrefix": "10.1.1.0/24",
+              "resources": [
+                { "type": "appGateway", "name": "secondary-app-gw" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "app-subnet",
+              "addressPrefix": "10.1.2.0/24",
+              "resources": [
+                { "type": "appService", "name": "secondary-web-app" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "data-subnet",
+              "addressPrefix": "10.1.3.0/24",
+              "resources": [
+                { "type": "privateEndpoint", "name": "secondary-sql-pe" },
+                { "type": "privateEndpoint", "name": "secondary-redis-pe" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "globalResources": [
+    { "type": "trafficManager", "name": "global-traffic-manager" },
+    { "type": "sqlDatabase", "name": "primary-sql-db", "properties": { "role": "primary" } },
+    { "type": "sqlDatabase", "name": "secondary-sql-db", "properties": { "role": "geo-replica" } },
+    { "type": "redis", "name": "primary-redis" },
+    { "type": "redis", "name": "secondary-redis" },
+    { "type": "keyVault", "name": "app-key-vault" },
+    { "type": "appInsights", "name": "app-insights" },
+    { "type": "logAnalytics", "name": "central-log-analytics" }
+  ],
+  "connections": [
+    { "from": "global-traffic-manager", "to": "primary-app-gw", "label": "Primary (priority 1)" },
+    { "from": "global-traffic-manager", "to": "secondary-app-gw", "label": "Secondary (priority 2)" },
+    { "from": "primary-app-gw", "to": "primary-web-app", "label": "HTTP/HTTPS" },
+    { "from": "secondary-app-gw", "to": "secondary-web-app", "label": "HTTP/HTTPS" },
+    { "from": "primary-web-app", "to": "primary-sql-pe", "label": "SQL" },
+    { "from": "secondary-web-app", "to": "secondary-sql-pe", "label": "SQL" },
+    { "from": "primary-sql-pe", "to": "primary-sql-db", "label": "Private Link", "style": "dashed" },
+    { "from": "secondary-sql-pe", "to": "secondary-sql-db", "label": "Private Link", "style": "dashed" },
+    { "from": "primary-sql-db", "to": "secondary-sql-db", "label": "Geo-replication", "style": "dashed", "bidirectional": true },
+    { "from": "primary-web-app", "to": "primary-redis-pe", "label": "Cache" },
+    { "from": "secondary-web-app", "to": "secondary-redis-pe", "label": "Cache" },
+    { "from": "primary-redis-pe", "to": "primary-redis", "label": "Private Link", "style": "dashed" },
+    { "from": "secondary-redis-pe", "to": "secondary-redis", "label": "Private Link", "style": "dashed" }
+  ]
+}

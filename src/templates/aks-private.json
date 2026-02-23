@@ -1,0 +1,67 @@
+{
+  "title": "Private AKS Cluster",
+  "description": "Azure Kubernetes Service with private cluster endpoint, integrated with Azure Container Registry via private endpoint, Key Vault for secrets, and Log Analytics for monitoring.",
+  "regions": [
+    {
+      "name": "West Europe",
+      "code": "westeurope",
+      "isPrimary": true,
+      "resources": [
+        {
+          "type": "vnet",
+          "name": "aks-vnet",
+          "addressSpace": "10.0.0.0/16",
+          "subnets": [
+            {
+              "type": "subnet",
+              "name": "aks-subnet",
+              "addressPrefix": "10.0.0.0/22",
+              "resources": [
+                { "type": "aks", "name": "aks-cluster" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "appgw-subnet",
+              "addressPrefix": "10.0.4.0/24",
+              "resources": [
+                { "type": "appGateway", "name": "aks-app-gateway" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "pe-subnet",
+              "addressPrefix": "10.0.5.0/24",
+              "resources": [
+                { "type": "privateEndpoint", "name": "acr-pe" },
+                { "type": "privateEndpoint", "name": "kv-pe" },
+                { "type": "privateEndpoint", "name": "sql-pe" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "globalResources": [
+    { "type": "containerRegistry", "name": "akscontainerregistry" },
+    { "type": "keyVault", "name": "aks-key-vault" },
+    { "type": "sqlDatabase", "name": "aks-sql-db" },
+    { "type": "logAnalytics", "name": "aks-log-analytics" },
+    { "type": "appInsights", "name": "aks-app-insights" },
+    { "type": "managedIdentity", "name": "aks-managed-identity" },
+    { "type": "privateDns", "name": "aks-private-dns" }
+  ],
+  "connections": [
+    { "from": "aks-app-gateway", "to": "aks-cluster", "label": "Ingress" },
+    { "from": "aks-cluster", "to": "acr-pe", "label": "Pull images" },
+    { "from": "acr-pe", "to": "akscontainerregistry", "label": "Private Link", "style": "dashed" },
+    { "from": "aks-cluster", "to": "kv-pe", "label": "Secrets" },
+    { "from": "kv-pe", "to": "aks-key-vault", "label": "Private Link", "style": "dashed" },
+    { "from": "aks-cluster", "to": "sql-pe", "label": "Data" },
+    { "from": "sql-pe", "to": "aks-sql-db", "label": "Private Link", "style": "dashed" },
+    { "from": "aks-cluster", "to": "aks-managed-identity", "label": "Identity", "style": "dashed" },
+    { "from": "aks-cluster", "to": "aks-log-analytics", "label": "Monitoring", "style": "dashed" },
+    { "from": "aks-app-insights", "to": "aks-log-analytics", "label": "Telemetry" }
+  ]
+}

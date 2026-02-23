@@ -1,0 +1,102 @@
+{
+  "title": "Hybrid Network with ExpressRoute",
+  "description": "On-premises datacenter connected to Azure via ExpressRoute circuit with a hub-spoke network topology. Hub VNet provides centralized connectivity with VPN Gateway as backup, spoke VNet hosts workloads.",
+  "onPremises": [
+    {
+      "name": "On-Premises Datacenter",
+      "location": "Corporate HQ",
+      "resources": [
+        { "type": "localNetworkGateway", "name": "on-prem-gateway" },
+        { "type": "vm", "name": "on-prem-server-1" },
+        { "type": "vm", "name": "on-prem-server-2" }
+      ]
+    }
+  ],
+  "regions": [
+    {
+      "name": "West Europe",
+      "code": "westeurope",
+      "isPrimary": true,
+      "resources": [
+        {
+          "type": "hubVnet",
+          "name": "hub-vnet",
+          "addressSpace": "10.0.0.0/16",
+          "subnets": [
+            {
+              "type": "subnet",
+              "name": "GatewaySubnet",
+              "addressPrefix": "10.0.0.0/27",
+              "resources": [
+                { "type": "vpnGateway", "name": "hub-vpn-gateway" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "AzureFirewallSubnet",
+              "addressPrefix": "10.0.1.0/26",
+              "resources": [
+                { "type": "firewall", "name": "hub-firewall" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "AzureBastionSubnet",
+              "addressPrefix": "10.0.2.0/26",
+              "resources": [
+                { "type": "bastion", "name": "hub-bastion" }
+              ]
+            }
+          ],
+          "peerings": [
+            { "name": "hub-to-spoke", "remoteVnet": "spoke-vnet", "allowGatewayTransit": true }
+          ]
+        },
+        {
+          "type": "vnet",
+          "name": "spoke-vnet",
+          "addressSpace": "10.1.0.0/16",
+          "subnets": [
+            {
+              "type": "subnet",
+              "name": "workload-subnet",
+              "addressPrefix": "10.1.1.0/24",
+              "resources": [
+                { "type": "vm", "name": "workload-vm-1" },
+                { "type": "vm", "name": "workload-vm-2" }
+              ]
+            },
+            {
+              "type": "subnet",
+              "name": "data-subnet",
+              "addressPrefix": "10.1.2.0/24",
+              "resources": [
+                { "type": "privateEndpoint", "name": "storage-pe" }
+              ]
+            }
+          ],
+          "peerings": [
+            { "name": "spoke-to-hub", "remoteVnet": "hub-vnet", "useRemoteGateways": true }
+          ]
+        }
+      ]
+    }
+  ],
+  "globalResources": [
+    { "type": "expressRoute", "name": "expressroute-circuit" },
+    { "type": "storageAccount", "name": "workloadstore" },
+    { "type": "keyVault", "name": "hub-key-vault" },
+    { "type": "logAnalytics", "name": "central-log-analytics" },
+    { "type": "routeTable", "name": "spoke-route-table" }
+  ],
+  "connections": [
+    { "from": "on-prem-gateway", "to": "expressroute-circuit", "label": "ExpressRoute", "style": "expressroute" },
+    { "from": "expressroute-circuit", "to": "hub-vpn-gateway", "label": "ExpressRoute", "style": "expressroute" },
+    { "from": "hub-vpn-gateway", "to": "on-prem-gateway", "label": "VPN (backup)", "style": "vpn" },
+    { "from": "hub-vnet", "to": "spoke-vnet", "label": "VNet Peering", "style": "peering" },
+    { "from": "hub-firewall", "to": "workload-vm-1", "label": "Inspects traffic", "style": "dashed" },
+    { "from": "hub-firewall", "to": "workload-vm-2", "label": "Inspects traffic", "style": "dashed" },
+    { "from": "storage-pe", "to": "workloadstore", "label": "Private Link", "style": "dashed" },
+    { "from": "hub-bastion", "to": "workload-vm-1", "label": "SSH/RDP", "style": "dashed" }
+  ]
+}

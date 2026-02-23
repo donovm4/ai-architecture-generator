@@ -1,39 +1,97 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import type { GenerateResponse } from '../types';
+import { ExportDropdown } from './ExportDropdown';
+import type { ExportFormat, PngExportOptions } from './ExportDropdown';
+import { IaCExportModal } from './IaCExportModal';
+import { jsPDF } from 'jspdf';
+import { AssessmentButton } from './AssessmentButton';
+import { AssessmentPanel } from './AssessmentPanel';
+import type { AssessmentResult } from './AssessmentPanel';
 
 interface DiagramViewerProps {
   result: GenerateResponse | null;
+  assessment?: AssessmentResult | null;
+  isAssessing?: boolean;
+  onAssess?: (pillars: string[]) => void;
+  onCloseAssessment?: () => void;
+  diagramMode?: 'azure' | 'generic';
 }
 
-export function DiagramViewer({ result }: DiagramViewerProps) {
+export function DiagramViewer({ result, assessment, isAssessing, onAssess, onCloseAssessment, diagramMode }: DiagramViewerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [showXml, setShowXml] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [exporting, setExporting] = useState<'png' | 'svg' | null>(null);
+  const [exporting, setExporting] = useState<string | null>(null);
   const [descExpanded, setDescExpanded] = useState(false);
   const [loadingTime, setLoadingTime] = useState(0);
+  const [iacModalOpen, setIacModalOpen] = useState(false);
+  const [iacModalFormat, setIacModalFormat] = useState<'bicep' | 'terraform'>('bicep');
   // Track whether the iframe has finished its initial 'init' handshake
   const iframeReady = useRef(false);
   // Store the pending XML so the message handler always has the latest
   const pendingXml = useRef<string | null>(null);
+  // Track the originally requested export format (e.g. 'pdf' even though we export 'svg')
+  const requestedExportFormat = useRef<string | null>(null);
 
-  // Export handler: trigger Draw.io embed export API
-  const handleExport = useCallback((format: 'png' | 'svg') => {
+  // Export handler: supports all export formats via ExportDropdown
+  const handleExport = useCallback((format: ExportFormat, options?: PngExportOptions) => {
+    // Handle IaC export (opens modal)
+    if (format === 'bicep' || format === 'terraform') {
+      setIacModalFormat(format);
+      setIacModalOpen(true);
+      return;
+    }
+
+    // Handle drawio download (no iframe needed)
+    if (format === 'drawio') {
+      if (!result?.xml) return;
+      const blob = new Blob([result.xml], { type: 'application/xml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${result.architecture?.title || 'architecture'}.drawio`;
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    // Handle JSON copy to clipboard
+    if (format === 'json') {
+      if (!result?.parsed) return;
+      navigator.clipboard.writeText(JSON.stringify(result.parsed, null, 2));
+      return;
+    }
+
+    // All other formats use iframe postMessage
     if (!iframeRef.current?.contentWindow || !isLoaded) return;
+
+    // draw.io embed mode supports: html, html2, svg, xmlsvg, png, xmlpng
+    // PDF is NOT supported in embed mode — export as high-res PNG instead
+    const drawioFormat = format === 'pdf' ? 'png' : (format === 'xmlpng' ? 'xmlpng' : format);
+
     setExporting(format);
-    iframeRef.current.contentWindow.postMessage(
-      JSON.stringify({
-        action: 'export',
-        format,
-        spin: true,
-        ...(format === 'png' ? { scale: 2, border: 10, background: '#ffffff' } : {}),
-      }),
-      '*'
-    );
-    // Safety timeout — clear exporting state if no response after 15s
+    requestedExportFormat.current = format;
+    const msg: Record<string, unknown> = {
+      action: 'export',
+      format: drawioFormat,
+    };
+
+    if (format === 'png' || format === 'xmlpng' || format === 'pdf') {
+      msg.scale = format === 'pdf' ? 4 : (options?.scale ?? 2);
+      msg.border = 10;
+      msg.background = format === 'pdf' ? '#ffffff' : ((options?.background === 'transparent') ? 'none' : '#ffffff');
+    }
+
+    if (format === 'svg' || format === 'pdf') {
+      msg.border = 10;
+    }
+
+    iframeRef.current.contentWindow.postMessage(JSON.stringify(msg), '*');
+
+    // Safety timeout
     setTimeout(() => setExporting(null), 15000);
-  }, [isLoaded]);
+  }, [isLoaded, result]);
 
   // One-time listener: handles draw.io init/load/export events for the lifetime of the component
   useEffect(() => {
@@ -95,19 +153,68 @@ export function DiagramViewer({ result }: DiagramViewerProps) {
         if (msg.event === 'export') {
           setExporting(null);
           const title = result?.architecture?.title || 'architecture';
-          if (msg.format === 'png' && msg.data) {
-            // Validate that data is a base64 data URI, not an arbitrary URL
+          const originalFormat = requestedExportFormat.current || msg.format;
+          requestedExportFormat.current = null;
+
+          if ((msg.format === 'png' || msg.format === 'xmlpng') && msg.data) {
+            // Validate that data is a base64 data URI
             if (typeof msg.data !== 'string' || !msg.data.startsWith('data:image/png;base64,')) {
               console.warn('Unexpected PNG export data format, ignoring');
               return;
             }
-            const a = document.createElement('a');
-            a.href = msg.data;
-            a.download = `${title}.png`;
-            a.click();
+
+            if (originalFormat === 'pdf') {
+              // Convert PNG to PDF — fit image onto an A3 page
+              const img = new Image();
+              img.onload = () => {
+                const imgW = img.naturalWidth;
+                const imgH = img.naturalHeight;
+                const orientation = imgW > imgH ? 'landscape' : 'portrait';
+                const pdf = new jsPDF({
+                  orientation,
+                  unit: 'mm',
+                  format: 'a3',
+                });
+                const pageW = pdf.internal.pageSize.getWidth();
+                const pageH = pdf.internal.pageSize.getHeight();
+                const margin = 10;
+                const availW = pageW - margin * 2;
+                const availH = pageH - margin * 2;
+                const scale = Math.min(availW / imgW, availH / imgH);
+                const w = imgW * scale;
+                const h = imgH * scale;
+                const x = (pageW - w) / 2;
+                const y = (pageH - h) / 2;
+                pdf.addImage(msg.data, 'PNG', x, y, w, h);
+                pdf.save(`${title}.pdf`);
+              };
+              img.src = msg.data;
+            } else {
+              const a = document.createElement('a');
+              a.href = msg.data;
+              a.download = msg.format === 'xmlpng'
+                ? `${title}-editable.png`
+                : `${title}.png`;
+              a.click();
+            }
           } else if (msg.format === 'svg' && msg.data) {
             if (typeof msg.data !== 'string') return;
-            const blob = new Blob([msg.data], { type: 'image/svg+xml' });
+
+            // draw.io returns SVG as a data URI: data:image/svg+xml;base64,...
+            let svgContent: string;
+            if (msg.data.startsWith('data:')) {
+              const base64Match = msg.data.match(/^data:[^;]+;base64,(.+)$/);
+              if (base64Match) {
+                svgContent = atob(base64Match[1]);
+              } else {
+                const commaIdx = msg.data.indexOf(',');
+                svgContent = commaIdx >= 0 ? decodeURIComponent(msg.data.slice(commaIdx + 1)) : msg.data;
+              }
+            } else {
+              svgContent = msg.data;
+            }
+
+            const blob = new Blob([svgContent], { type: 'image/svg+xml' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -163,17 +270,6 @@ export function DiagramViewer({ result }: DiagramViewerProps) {
     }, 1000);
     return () => clearInterval(interval);
   }, [isLoaded, result?.xml]);
-
-  const handleDownload = () => {
-    if (!result?.xml) return;
-    const blob = new Blob([result.xml], { type: 'application/xml' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${result.architecture?.title || 'architecture'}.drawio`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
 
   const handleCopyXml = async () => {
     if (!result?.xml) return;
@@ -243,22 +339,12 @@ export function DiagramViewer({ result }: DiagramViewerProps) {
             )}
         </div>
         <div className="viewer-actions">
-          <button
-            className="btn btn-toolbar"
-            onClick={() => handleExport('png')}
-            disabled={!isLoaded || exporting === 'png'}
-            title="Export as PNG"
-          >
-            {exporting === 'png' ? '⏳' : '↓'} PNG
-          </button>
-          <button
-            className="btn btn-toolbar"
-            onClick={() => handleExport('svg')}
-            disabled={!isLoaded || exporting === 'svg'}
-            title="Export as SVG"
-          >
-            {exporting === 'svg' ? '⏳' : '↓'} SVG
-          </button>
+          <AssessmentButton
+            onAssess={onAssess || (() => {})}
+            isAssessing={!!isAssessing}
+            hasArchitecture={!!result?.architecture}
+            isAzureMode={diagramMode !== 'generic'}
+          />
           <button
             className="btn btn-toolbar"
             onClick={() => setShowXml(!showXml)}
@@ -268,12 +354,12 @@ export function DiagramViewer({ result }: DiagramViewerProps) {
           <button className="btn btn-toolbar" onClick={handleCopyXml}>
             {copied ? '✓ Copied' : 'Copy XML'}
           </button>
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={handleDownload}
-          >
-            ↓ Download .drawio
-          </button>
+          <ExportDropdown
+            isLoaded={isLoaded}
+            exporting={exporting}
+            onExport={handleExport}
+            hasJson={!!result?.parsed}
+          />
         </div>
       </div>
 
@@ -382,6 +468,17 @@ export function DiagramViewer({ result }: DiagramViewerProps) {
           })()}
         </div>
       </div>
+
+      {assessment && onCloseAssessment && (
+        <AssessmentPanel assessment={assessment} onClose={onCloseAssessment} />
+      )}
+
+      <IaCExportModal
+        isOpen={iacModalOpen}
+        onClose={() => setIacModalOpen(false)}
+        architecture={result?.architecture || result?.parsed}
+        initialFormat={iacModalFormat}
+      />
     </div>
   );
 }
