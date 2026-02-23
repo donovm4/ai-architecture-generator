@@ -173,15 +173,26 @@ function extractCell(raw: any): ParsedCell | null {
  */
 function stripHtml(text: string): string {
   if (!text) return '';
-  return text
-    .replace(/<br\s*\/?>/gi, ' ')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, ' ')
+  // Decode HTML entities first, then strip tags.
+  // Loop to handle nested/double-encoded entities (e.g. &amp;lt; → &lt; → <).
+  let result = text.replace(/<br\s*\/?>/gi, ' ');
+  let prev = '';
+  for (let i = 0; i < 3 && result !== prev; i++) {
+    prev = result;
+    result = result
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+  }
+  // Strip all HTML tags (loop until no tags remain to handle partial/nested tags)
+  prev = '';
+  while (result !== prev) {
+    prev = result;
+    result = result.replace(/<[^>]*>/g, '');
+  }
+  return result.replace(/\s+/g, ' ')
     .trim();
 }
 

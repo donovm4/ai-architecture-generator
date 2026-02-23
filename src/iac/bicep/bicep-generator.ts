@@ -665,5 +665,5 @@ function capitalize(s: string): string {
 }
 
 function sanitizeBicepString(s: string): string {
-  return s.replace(/'/g, "\\'");
+  return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
