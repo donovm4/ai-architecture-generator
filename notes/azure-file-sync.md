@@ -21,7 +21,7 @@ Create an architecture diagram that shows an Azure Storage Sync Service workload
 
 Output:
 
-![image](./images/afs/afs-01.png)
+![image](./images/afs/afs-generic-01.png)
 
 ### Attempt #2
 
@@ -33,7 +33,7 @@ Create an Azure diagram that shows an Azure File Sync workload. It should show t
 
 Output:
 
-![image](./images/afs/afs-02.png)
+![image](./images/afs/afs-generic-02.png)
 
 ### Attempt #3
 
@@ -58,7 +58,7 @@ In this singular diagram, you should create two parts. Part 1 will show the arch
 
 Output:
 
-![image](./images/afs/afs-03.png)
+![image](./images/afs/afs-generic-03.png)
 
 ### Attempt #4
 
@@ -86,7 +86,7 @@ In this singular diagram, you should create two parts. Part 1 (titled "AFS Archi
 
 Output:
 
-![image](./images/afs/afs-04.png)
+![image](./images/afs/afs-generic-04.png)
 
 ### Attempt #5
 
@@ -98,7 +98,56 @@ Create an Azure diagram for Azure File Sync. For the sync group, there should be
 
 Output:
 
-![image](./images/afs/afs-05.png)
+![image](./images/afs/afs-generic-05.png)
+
+### Analysis
+
+TBD
+
+## Azure
+
+### Configuration
+
+Model Deployment: Gpt-5.2-chat 2025-12-11  
+Diagram Mode: Azure | Prompt
+
+### Initial
+
+Prompt:
+
+```
+Create an architecture diagram of an Azure Storage Sync Service workload.
+```
+
+Output:
+
+![image](./images/afs/afs-azure-01-1.png)
+
+Ran the same prompt again just to see what would happen…
+
+![image](./images/afs/afs-azure-01-2.png)
+
+### Refinement(s)
+
+Refinement #1: Remove this onprem-file-server-01 resource
+
+Output:
+
+![image](./images/afs/afs-azure-02.png)
+
+
+Refinement #2: The storage-sync-service needs to use the Azure Storage Sync Service icon.
+
+Output:
+
+![image](./images/afs/afs-azure-03.png)
+
+
+Refinement #3: Add a section of the diagram indicating an On-premises environment. Change the storage-sync-service icon from a Storage Account to a Storage Sync Service (or Azure File Sync) icon. Add private dns zone for Azure Files and Azure Storage Sync Service.
+
+Output:
+
+![image](./images/afs/afs-azure-04.png)
 
 ### Analysis
 
