@@ -8,7 +8,7 @@ Using Mika's Architecture Generator tool in both modes to create an Azure File S
 
 ### Configuration
 
-Model Deployment: `gpt-5.2-chat 2025-12-11`
+Model Deployment: `gpt-5.2-chat 2025-12-11`  
 Diagram Mode: `Generic`
 
 ### Attempt #1
